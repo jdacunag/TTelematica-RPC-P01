@@ -33,7 +33,7 @@ end
 # Unset irrelevant variables.
 deactivate nondestructive
 
-set -gx VIRTUAL_ENV /home/david/TTelematica-RPC-P01/venv
+set -gx VIRTUAL_ENV /home/jdacunag/TTelematica-Proyecto01/TTelematica-RPC-P01/venv
 
 set -gx _OLD_VIRTUAL_PATH $PATH
 set -gx PATH "$VIRTUAL_ENV/"bin $PATH

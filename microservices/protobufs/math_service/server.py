@@ -7,7 +7,7 @@ import threading
 import operation_pb2
 import operation_pb2_grpc
 from service import MathService
-from mom_handler import MOMHandler
+from mom_handler import MOMHandler, process_pending_operations
 
 # Puerto por defecto para el servidor
 DEFAULT_PORT = 50051
@@ -92,6 +92,10 @@ def toggle_server_status():
     print(f"Estado del servidor cambiado a: {status}")
 
 def serve():
+    # Procesar operaciones pendientes al iniciar
+    print("Iniciando procesamiento de operaciones pendientes...")
+    process_pending_operations()
+    
     # Crear un servidor gRPC
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
     
