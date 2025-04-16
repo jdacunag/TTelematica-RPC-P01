@@ -21,7 +21,7 @@ def check_service_status():
             print("\nEstado del servicio:")
             print(f"Status: {data['status']}")
             print(f"Mensaje: {data['message']}")
-            print(f"Tiempo activo: {data['uptime']} segundos")
+            print(f"Tiempo activo: {data.get('uptime', 'N/A')} segundos")
             return data['status']
         else:
             print(f"Error al verificar estado del servicio: {response.status_code}")
@@ -30,6 +30,7 @@ def check_service_status():
     
     except requests.RequestException as e:
         print(f"Error de conexión: {str(e)}")
+        print("¿Está el API Gateway ejecutándose?")
         return None
 
 def sum_operation(a, b):
@@ -45,7 +46,8 @@ def sum_operation(a, b):
     payload = {
         "a": a,
         "b": b,
-        "operation_id": operation_id
+        "operation_id": operation_id,
+        "timestamp": time.time()
     }
     
     try:
@@ -77,6 +79,7 @@ def sum_operation(a, b):
     
     except requests.RequestException as e:
         print(f"Error de conexión: {str(e)}")
+        print("¿Está el API Gateway ejecutándose?")
         return None
 
 def check_operation_status(operation_id):
@@ -99,8 +102,11 @@ def check_operation_status(operation_id):
                 data = response.json()
                 status = data.get('status', 'UNKNOWN')
                 message = data.get('message', 'Sin mensaje')
+                source = data.get('source', 'server')
                 
                 print(f"Intento {attempt}: Estado = {status}, Mensaje: {message}")
+                if source != 'server':
+                    print(f"Fuente de datos: {source}")
                 
                 # Si la operación está completa o ha fallado, mostrar el resultado y salir
                 if status in ['COMPLETED', 'FAILED']:
@@ -118,10 +124,49 @@ def check_operation_status(operation_id):
         
         except requests.RequestException as e:
             print(f"Error de conexión: {str(e)}")
+            print("¿Está el API Gateway ejecutándose?")
             time.sleep(2)
     
     if attempt >= max_attempts:
         print("Se alcanzó el número máximo de intentos sin obtener un resultado final")
+        print("La operación podría seguir procesándose en segundo plano")
+        print(f"Puede consultar su estado más tarde con el ID: {operation_id}")
+
+def list_operations():
+    """
+    Lista todas las operaciones disponibles
+    """
+    url = f"{API_GATEWAY_URL}/operations"
+    
+    try:
+        response = requests.get(url)
+        
+        if response.status_code == 200:
+            data = response.json()
+            operations = data.get('operations', [])
+            
+            if operations:
+                print("\nOperaciones disponibles:")
+                for i, op in enumerate(operations, 1):
+                    print(f"{i}. ID: {op['operation_id']}")
+                    print(f"   Estado: {op['status']}")
+                    print(f"   Mensaje: {op['message']}")
+                    print("---")
+                
+                print(f"Total: {data.get('count', len(operations))} operaciones")
+            else:
+                print("\nNo hay operaciones disponibles")
+            
+            return operations
+        else:
+            print(f"Error al listar operaciones: {response.status_code}")
+            print(response.text)
+            return None
+    
+    except requests.RequestException as e:
+        print(f"Error de conexión: {str(e)}")
+        print("¿Está el API Gateway ejecutándose?")
+        return None
 
 def interactive_mode():
     """
@@ -134,9 +179,10 @@ def interactive_mode():
         print("1. Verificar estado del servicio")
         print("2. Realizar operación de suma")
         print("3. Consultar estado de operación")
-        print("4. Salir")
+        print("4. Listar todas las operaciones")
+        print("5. Salir")
         
-        choice = input("\nSeleccione una opción (1-4): ")
+        choice = input("\nSeleccione una opción (1-5): ")
         
         if choice == '1':
             check_service_status()
@@ -154,6 +200,20 @@ def interactive_mode():
             check_operation_status(operation_id)
         
         elif choice == '4':
+            operations = list_operations()
+            if operations and len(operations) > 0:
+                check_specific = input("\n¿Desea consultar el estado de alguna operación? (s/n): ")
+                if check_specific.lower() == 's':
+                    try:
+                        index = int(input("Ingrese el número de la operación: ")) - 1
+                        if 0 <= index < len(operations):
+                            check_operation_status(operations[index]['operation_id'])
+                        else:
+                            print("Índice inválido")
+                    except ValueError:
+                        print("Debe ingresar un número válido")
+        
+        elif choice == '5':
             print("Saliendo...")
             break
         

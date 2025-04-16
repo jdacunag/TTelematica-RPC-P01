@@ -38,16 +38,6 @@ def load_operations():
 def save_operation(operation_id, operation_data):
     """Guarda una operación en un archivo JSON"""
     try:
-        # Asegurarnos de que todos los campos necesarios están presentes
-        if "a" not in operation_data and "b" not in operation_data:
-            # Si estos datos están en async_operations, usarlos
-            if operation_id in async_operations:
-                existing_data = async_operations[operation_id]
-                if "a" in existing_data:
-                    operation_data["a"] = existing_data["a"]
-                if "b" in existing_data:
-                    operation_data["b"] = existing_data["b"]
-        
         file_path = os.path.join(OPERATIONS_DIR, f"{operation_id}.json")
         with open(file_path, 'w') as f:
             json.dump(operation_data, f)
@@ -161,8 +151,8 @@ class MathService(operation_pb2_grpc.MathServiceServicer):
                         result = operation_pb2.OperationResponse()
                         result.result = operation["result"]["result"]
                         result.success = operation["result"]["success"] 
-                        result.error_message = operation["result"].get("error_message", "")
-                        result.operation_id = operation["result"].get("operation_id", operation_id)
+                        result.error_message = operation["result"]["error_message"]
+                        result.operation_id = operation["result"]["operation_id"]
                         response.result.CopyFrom(result)
                     
                     return response
@@ -226,9 +216,7 @@ def process_async_operation(operation_id, a, b):
         op_data = {
             "status": operation_pb2.AsyncOperationResponse.OperationStatus.COMPLETED,
             "message": "Operación completada",
-            "result": result_dict,
-            "a": a,
-            "b": b
+            "result": result_dict
         }
         async_operations[operation_id] = op_data
         save_operation(operation_id, op_data)
@@ -255,9 +243,7 @@ def process_async_operation(operation_id, a, b):
         op_data = {
             "status": operation_pb2.AsyncOperationResponse.OperationStatus.FAILED,
             "message": f"Error al procesar: {str(e)}",
-            "result": result_dict,
-            "a": a,
-            "b": b
+            "result": result_dict
         }
         async_operations[operation_id] = op_data
         save_operation(operation_id, op_data)

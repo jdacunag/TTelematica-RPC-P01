@@ -134,10 +134,7 @@ class MOMHandler:
         # Registrar operación como pendiente en memoria y disco
         op_data = {
             "status": 1,  # PENDING (equivale a OperationStatus.PENDING)
-            "message": "Operación en cola",
-            "a": a,
-            "b": b,
-            "timestamp": time.time()
+            "message": "Operación en cola"
         }
         async_operations[operation_id] = op_data
         save_operation(operation_id, op_data)
