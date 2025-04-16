@@ -1,0 +1,217 @@
+from flask import Flask, request, jsonify
+import grpc
+import uuid
+import json
+import sys
+import os
+
+# Asegurarnos de que podemos importar los módulos del servicio
+sys.path.append(os.path.abspath('../microservices/protobufs/math_service'))
+
+# Importar los módulos generados por protobuf
+import operation_pb2
+import operation_pb2_grpc
+
+app = Flask(__name__)
+
+# Configuración del servidor gRPC
+GRPC_SERVER_ADDRESS = 'localhost:50051'
+
+def get_grpc_stub():
+    """
+    Crea y retorna un stub gRPC para el servicio MathService
+    """
+    channel = grpc.insecure_channel(GRPC_SERVER_ADDRESS)
+    return operation_pb2_grpc.MathServiceStub(channel)
+
+@app.route('/health', methods=['GET'])
+def health_check():
+    """
+    Endpoint para verificar el estado del API Gateway
+    """
+    return jsonify({
+        'status': 'UP',
+        'message': 'API Gateway funcionando correctamente'
+    })
+
+@app.route('/service/status', methods=['GET'])
+def service_status():
+    """
+    Endpoint para verificar el estado del servicio matemático
+    """
+    service_id = request.args.get('service_id', 'math_service_01')
+    
+    try:
+        # Obtener stub gRPC
+        stub = get_grpc_stub()
+        
+        # Crear solicitud de estado
+        status_request = operation_pb2.StatusRequest(service_id=service_id)
+        
+        # Llamar al servicio gRPC
+        response = stub.CheckStatus(status_request)
+        
+        # Convertir respuesta gRPC a formato JSON
+        status_map = {
+            0: 'UNKNOWN',
+            1: 'RUNNING',
+            2: 'DEGRADED',
+            3: 'DOWN'
+        }
+        
+        return jsonify({
+            'status': status_map.get(response.status, 'UNKNOWN'),
+            'message': response.message,
+            'uptime': response.uptime,
+            'service_id': service_id
+        })
+    
+    except grpc.RpcError as e:
+        # Manejar error de gRPC
+        return jsonify({
+            'status': 'ERROR',
+            'message': f'Error al verificar estado: {e.details()}',
+            'code': str(e.code())
+        }), 500
+
+@app.route('/math/sum', methods=['POST'])
+def sum_operation():
+    """
+    Endpoint para realizar una suma
+    """
+    # Obtener datos de la solicitud
+    data = request.json
+    
+    if not data:
+        return jsonify({
+            'error': 'Datos no proporcionados'
+        }), 400
+    
+    a = data.get('a')
+    b = data.get('b')
+    
+    if a is None or b is None:
+        return jsonify({
+            'error': 'Se requieren los parámetros "a" y "b"'
+        }), 400
+    
+    # Verificar que los valores sean numéricos
+    try:
+        a = int(a)
+        b = int(b)
+    except ValueError:
+        return jsonify({
+            'error': 'Los valores de "a" y "b" deben ser numéricos'
+        }), 400
+    
+    # Obtener ID de operación si se proporciona, o generar uno nuevo
+    operation_id = data.get('operation_id', str(uuid.uuid4()))
+    
+    try:
+        # Obtener stub gRPC
+        stub = get_grpc_stub()
+        
+        # Crear solicitud gRPC
+        request_proto = operation_pb2.OperationRequest(
+            a=a,
+            b=b,
+            operation_id=operation_id
+        )
+        
+        # Llamar al servicio gRPC
+        response = stub.Sum(request_proto)
+        
+        # Verificar si fue exitoso o encolado
+        if response.success:
+            return jsonify({
+                'result': response.result,
+                'success': response.success,
+                'operation_id': response.operation_id
+            })
+        else:
+            # Si no fue exitoso, puede ser que se haya encolado
+            return jsonify({
+                'success': False,
+                'message': response.error_message,
+                'operation_id': response.operation_id,
+                'status': 'QUEUED'
+            }), 202  # Respuesta 202 Accepted
+    
+    except grpc.RpcError as e:
+        # Manejar caso de servicio no disponible
+        if e.code() == grpc.StatusCode.UNAVAILABLE:
+            # Extraer ID de operación del mensaje de error si está disponible
+            operation_id_extracted = None
+            if 'operation_id' in e.details():
+                try:
+                    parts = e.details().split('operation_id')
+                    if len(parts) > 1:
+                        operation_id_extracted = parts[1].strip()
+                except:
+                    pass
+            
+            return jsonify({
+                'success': False,
+                'message': 'Servicio temporalmente no disponible. La operación ha sido encolada.',
+                'operation_id': operation_id_extracted or operation_id,
+                'status': 'QUEUED'
+            }), 202  # Respuesta 202 Accepted
+        
+        # Otros errores gRPC
+        return jsonify({
+            'error': f'Error RPC: {e.details()}',
+            'code': str(e.code())
+        }), 500
+
+@app.route('/math/operation/status/<operation_id>', methods=['GET'])
+def operation_status(operation_id):
+    """
+    Endpoint para consultar el estado de una operación
+    """
+    try:
+        # Obtener stub gRPC
+        stub = get_grpc_stub()
+        
+        # Crear solicitud gRPC
+        request_proto = operation_pb2.AsyncOperationRequest(
+            operation_id=operation_id
+        )
+        
+        # Llamar al servicio gRPC
+        response = stub.GetAsyncOperationStatus(request_proto)
+        
+        # Mapear códigos de estado a texto
+        status_map = {
+            0: 'UNKNOWN',
+            1: 'PENDING',
+            2: 'PROCESSING',
+            3: 'COMPLETED',
+            4: 'FAILED',
+            5: 'CANCELLED'
+        }
+        
+        # Crear respuesta
+        result = {
+            'operation_id': operation_id,
+            'status': status_map.get(response.status, 'UNKNOWN'),
+            'message': response.message
+        }
+        
+        # Agregar resultado si está disponible
+        if response.result and response.status == 3:  # COMPLETED
+            result['result'] = {
+                'value': response.result.result,
+                'success': response.result.success
+            }
+        
+        return jsonify(result)
+    
+    except grpc.RpcError as e:
+        # Manejar error de gRPC
+        return jsonify({
+            'error': f'Error al consultar estado: {e.details()}',
+            'code': str(e.code())
+        }), 500
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000, debug=True)
