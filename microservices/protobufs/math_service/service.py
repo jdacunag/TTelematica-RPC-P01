@@ -173,9 +173,7 @@ def process_async_operation(operation_id, a, b):
     # Registrar operación como pendiente
     op_data = {
         "status": operation_pb2.AsyncOperationResponse.OperationStatus.PENDING,
-        "message": "Operación en cola",
-        "a": a,
-        "b": b
+        "message": "Operación en cola"
     }
     async_operations[operation_id] = op_data
     save_operation(operation_id, op_data)
@@ -187,9 +185,7 @@ def process_async_operation(operation_id, a, b):
         # Actualizar estado a procesando
         op_data = {
             "status": operation_pb2.AsyncOperationResponse.OperationStatus.PROCESSING,
-            "message": "Procesando operación",
-            "a": a,
-            "b": b
+            "message": "Procesando operación"
         }
         async_operations[operation_id] = op_data
         save_operation(operation_id, op_data)
