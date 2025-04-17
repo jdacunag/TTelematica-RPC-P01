@@ -3,9 +3,10 @@ import json
 import uuid
 import threading
 import time
+import os
 from service import process_async_operation, save_operation, async_operations
 
-# Configuración de RabbitMQ
+# Configuración de RabbitMQ usando las credenciales del contenedor Docker
 RABBITMQ_HOST = 'localhost'
 RABBITMQ_PORT = 5672
 RABBITMQ_USER = 'user'
@@ -15,6 +16,71 @@ RABBITMQ_VHOST = '/'
 # Nombres de las colas y exchanges
 OPERATION_QUEUE = 'math_operations'
 RESULTS_EXCHANGE = 'operation_results'
+
+def process_pending_operations():
+    """
+    Procesa todas las operaciones pendientes al iniciar el servidor
+    """
+    print("Buscando operaciones pendientes...")
+    
+    # Buscar operaciones en PENDING
+    pending_ops = {}
+    for op_id, op_data in async_operations.items():
+        if op_data.get("status") == 1:  # PENDING
+            pending_ops[op_id] = op_data
+    
+    if not pending_ops:
+        print("No hay operaciones pendientes en memoria")
+        
+        # Buscar en archivos locales
+        operations_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "operations")
+        if os.path.exists(operations_dir):
+            for filename in os.listdir(operations_dir):
+                if not filename.endswith('.json'):
+                    continue
+                
+                op_id = filename[:-5]  # Quitar extensión .json
+                if op_id not in async_operations:
+                    try:
+                        file_path = os.path.join(operations_dir, filename)
+                        with open(file_path, 'r') as f:
+                            operation_data = json.load(f)
+                        
+                        # Verificar si es una operación pendiente
+                        if operation_data.get("status") == 1:  # PENDING
+                            a = operation_data.get("a")
+                            b = operation_data.get("b")
+                            
+                            if a is not None and b is not None:
+                                print(f"Cargada operación pendiente desde archivo: {op_id}")
+                                async_operations[op_id] = operation_data
+                                pending_ops[op_id] = operation_data
+                    except Exception as e:
+                        print(f"Error al cargar operación {filename}: {str(e)}")
+        
+    if pending_ops:
+        print(f"Encontradas {len(pending_ops)} operaciones pendientes")
+        
+        # Procesar cada operación pendiente
+        for op_id, op_data in pending_ops.items():
+            try:
+                # Extraer a y b
+                a = op_data.get("a")
+                b = op_data.get("b")
+                
+                if a is None or b is None:
+                    print(f"Operación {op_id} incompleta, falta a o b")
+                    continue
+                
+                print(f"Procesando operación pendiente: {op_id} (suma de {a} + {b})")
+                
+                # Procesar la operación
+                process_async_operation(op_id, a, b)
+                
+            except Exception as e:
+                print(f"Error al procesar operación pendiente {op_id}: {str(e)}")
+    else:
+        print("No se encontraron operaciones pendientes")
 
 class MOMHandler:
     def __init__(self):
@@ -26,6 +92,9 @@ class MOMHandler:
         # Intentar conectar a RabbitMQ
         self._connect()
         
+        # Procesar operaciones pendientes
+        process_pending_operations()
+        
         # Iniciar thread para procesar mensajes
         if self.connected:
             self._start_consumer_thread()
@@ -33,7 +102,8 @@ class MOMHandler:
     def _connect(self):
         """Establece conexión con RabbitMQ"""
         try:
-            # Credenciales para la conexión
+            # Usar credenciales del contenedor Docker
+            print(f"Intentando conexión a RabbitMQ con credenciales configuradas: {RABBITMQ_USER}...")
             credentials = pika.PlainCredentials(RABBITMQ_USER, RABBITMQ_PASS)
             
             # Parámetros de conexión
@@ -42,7 +112,7 @@ class MOMHandler:
                 port=RABBITMQ_PORT,
                 virtual_host=RABBITMQ_VHOST,
                 credentials=credentials,
-                heartbeat=600,  # Incrementar heartbeat para evitar desconexiones
+                heartbeat=600,
                 blocked_connection_timeout=300
             )
             
@@ -63,8 +133,42 @@ class MOMHandler:
             print("Conexión establecida con RabbitMQ")
             self.connected = True
             
+        except pika.exceptions.AMQPConnectionError as e:
+            print(f"Error de conexión AMQP: {e}")
+            print("Intentando con credenciales alternativas (guest/guest)...")
+            
+            try:
+                # Intentar con credenciales por defecto de RabbitMQ
+                credentials = pika.PlainCredentials('guest', 'guest')
+                params = pika.ConnectionParameters(
+                    host=RABBITMQ_HOST,
+                    port=RABBITMQ_PORT,
+                    virtual_host=RABBITMQ_VHOST,
+                    credentials=credentials,
+                    heartbeat=600,
+                    blocked_connection_timeout=300
+                )
+                
+                self.connection = pika.BlockingConnection(params)
+                self.channel = self.connection.channel()
+                
+                # Declarar la cola de operaciones
+                self.channel.queue_declare(queue=OPERATION_QUEUE, durable=True)
+                
+                # Declarar el exchange para resultados
+                self.channel.exchange_declare(
+                    exchange=RESULTS_EXCHANGE,
+                    exchange_type='topic',
+                    durable=True
+                )
+                
+                print("Conexión establecida con RabbitMQ usando credenciales por defecto")
+                self.connected = True
+            except Exception as e2:
+                print(f"Error al conectar con credenciales alternativas: {e2}")
+                self.connected = False
         except Exception as e:
-            print(f"Error al conectar con RabbitMQ: {str(e)}")
+            print(f"Error al conectar con RabbitMQ: {e}")
             self.connected = False
     
     def _start_consumer_thread(self):
@@ -82,7 +186,31 @@ class MOMHandler:
         if not self.connected:
             self._connect()
             if not self.connected:
-                return None, "No se pudo conectar a RabbitMQ"
+                # Si no podemos conectar, procesamos localmente
+                print("No se pudo conectar a RabbitMQ, procesando operación localmente")
+                
+                # Generar ID si no se proporciona
+                if not operation_id:
+                    operation_id = str(uuid.uuid4())
+                
+                # Registrar operación
+                op_data = {
+                    "status": 1,  # PENDING
+                    "message": "Operación en proceso local",
+                    "a": a,
+                    "b": b,
+                    "timestamp": time.time()
+                }
+                async_operations[operation_id] = op_data
+                save_operation(operation_id, op_data)
+                
+                # Procesar operación directamente
+                threading.Thread(
+                    target=lambda: process_async_operation(operation_id, a, b),
+                    daemon=True
+                ).start()
+                
+                return operation_id, "Operación en proceso local (RabbitMQ no disponible)"
             
             # Si la conexión se restableció, iniciar consumidor
             self._start_consumer_thread()
@@ -94,7 +222,10 @@ class MOMHandler:
         # Registrar operación como pendiente en memoria y disco
         op_data = {
             "status": 1,  # PENDING (equivale a OperationStatus.PENDING)
-            "message": "Operación en cola"
+            "message": "Operación en cola",
+            "a": a,
+            "b": b,
+            "timestamp": time.time()
         }
         async_operations[operation_id] = op_data
         save_operation(operation_id, op_data)
