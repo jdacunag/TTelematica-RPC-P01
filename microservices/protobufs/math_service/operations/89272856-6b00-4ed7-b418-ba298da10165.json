@@ -1,1 +1,1 @@
-{"status": 1, "message": "Operaci\u00f3n en cola (API Gateway)", "timestamp": 1744909680.5957882, "a": 10, "b": 5}
+{"status": 3, "message": "Operaci\u00f3n completada", "result": {"result": 15, "success": true, "error_message": "", "operation_id": "89272856-6b00-4ed7-b418-ba298da10165"}}

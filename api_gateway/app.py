@@ -306,14 +306,18 @@ def list_operations():
         if not os.path.exists(OPERATIONS_DIR):
             os.makedirs(OPERATIONS_DIR)
         
-        # Listar archivos JSON
+        # Listar archivos JSON - Usar glob directamente sin caché
         operation_files = glob.glob(os.path.join(OPERATIONS_DIR, '*.json'))
         
-        # Cargar cada operación
+        # Forzar actualización de la lista - leer del sistema de archivos cada vez
+        print(f"Encontrados {len(operation_files)} archivos de operaciones en {OPERATIONS_DIR}")
+        
+        # Cargar cada operación fresca desde el disco
         for file_path in operation_files:
             try:
-                operation_id = os.path.basename(file_path)[:-5]  # Quitar .json
+                operation_id = os.path.basename(file_path)[:-5]  # Quitar extensión .json
                 
+                # Leer el archivo con cada solicitud para obtener datos frescos
                 with open(file_path, 'r') as f:
                     operation_data = json.load(f)
                 
@@ -335,6 +339,9 @@ def list_operations():
                 })
             except Exception as e:
                 print(f"Error al cargar operación {file_path}: {str(e)}")
+        
+        # Ordenar las operaciones para mejor visualización (opcional)
+        operations.sort(key=lambda op: op['operation_id'])
         
         return jsonify({
             'count': len(operations),
