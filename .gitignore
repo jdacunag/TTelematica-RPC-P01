@@ -27,6 +27,7 @@ ENV/
 env/
 virtualenv/
 
+
 # Logs
 *.log
 logs/
