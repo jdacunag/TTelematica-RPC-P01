@@ -4,7 +4,7 @@ import uuid
 import json
 import sys
 import os
-import glob
+import time
 
 # Asegurarnos de que podemos importar los módulos del servicio
 sys.path.append(os.path.abspath('../microservices/protobufs/math_service'))
@@ -105,18 +105,19 @@ def sum_operation():
             'error': 'Datos no proporcionados'
         }), 400
     
-    a = data.get('a')
-    b = data.get('b')
+    # Extraer y validar los operandos
+    a_value = data.get('a')
+    b_value = data.get('b')
     
-    if a is None or b is None:
+    if a_value is None or b_value is None:
         return jsonify({
             'error': 'Se requieren los parámetros "a" y "b"'
         }), 400
     
     # Verificar que los valores sean numéricos
     try:
-        a = int(a)
-        b = int(b)
+        a_value = int(a_value)
+        b_value = int(b_value)
     except ValueError:
         return jsonify({
             'error': 'Los valores de "a" y "b" deben ser numéricos'
@@ -131,13 +132,51 @@ def sum_operation():
         
         # Crear solicitud gRPC
         request_proto = operation_pb2.OperationRequest(
-            a=a,
-            b=b,
+            a=a_value,
+            b=b_value,
             operation_id=operation_id
         )
         
         # Llamar al servicio gRPC
         response = stub.Sum(request_proto)
+        
+        # Solicitar estado para forzar persistencia
+        try:
+            status_request = operation_pb2.AsyncOperationRequest(
+                operation_id=operation_id
+            )
+            stub.GetAsyncOperationStatus(status_request)
+        except Exception as status_error:
+            print(f"Error al verificar estado después de suma: {str(status_error)}")
+        
+        # IMPORTANTE: Si la operación fue exitosa, guardarla explícitamente en el filesystem
+        if response.success:
+            try:
+                # Crear directorio si no existe
+                if not os.path.exists(OPERATIONS_DIR):
+                    os.makedirs(OPERATIONS_DIR)
+                
+                # Crear datos de la operación
+                operation_data = {
+                    "status": 3,  # COMPLETED
+                    "message": "Operación completada",
+                    "result": {
+                        "result": response.result,
+                        "success": response.success,
+                        "error_message": response.error_message if hasattr(response, 'error_message') else "",
+                        "operation_id": operation_id
+                    },
+                    "timestamp": time.time()
+                }
+                
+                # Guardar en archivo
+                file_path = os.path.join(OPERATIONS_DIR, f"{operation_id}.json")
+                with open(file_path, 'w') as f:
+                    json.dump(operation_data, f)
+                
+                print(f"Operación exitosa {operation_id} guardada en {file_path}")
+            except Exception as save_error:
+                print(f"Error al guardar operación exitosa: {str(save_error)}")
         
         # Verificar si fue exitoso o encolado
         if response.success:
@@ -168,8 +207,8 @@ def sum_operation():
                 "status": 1,  # PENDING
                 "message": "Operación en cola (API Gateway)",
                 "timestamp": request.json.get("timestamp", 0),
-                "a": a,
-                "b": b
+                "a": a_value,
+                "b": b_value
             }
             
             try:
@@ -229,7 +268,7 @@ def operation_status(operation_id):
             }
             
             # Agregar resultado si está disponible
-            if response.result and response.status == 3:  # COMPLETED
+            if hasattr(response, 'result') and response.result and response.status == 3:  # COMPLETED
                 result['result'] = {
                     'value': response.result.result,
                     'success': response.result.success
@@ -296,28 +335,39 @@ def operation_status(operation_id):
 @app.route('/operations', methods=['GET'])
 def list_operations():
     """
-    Endpoint para listar todas las operaciones disponibles
+    Endpoint para listar todas las operaciones disponibles en orden ascendente por tiempo
+    (las más antiguas primero, las más recientes al final)
     """
     try:
-        # Buscar archivos de operaciones
-        operations = []
+        # Debugging - Listar información del directorio
+        print(f"\n--- Información de depuración ---")
+        print(f"Directorio de operaciones: {OPERATIONS_DIR}")
         
-        # Crear directorio si no existe
         if not os.path.exists(OPERATIONS_DIR):
+            print(f"¡ADVERTENCIA! El directorio no existe, creándolo...")
             os.makedirs(OPERATIONS_DIR)
         
-        # Listar archivos JSON - Usar glob directamente sin caché
-        operation_files = glob.glob(os.path.join(OPERATIONS_DIR, '*.json'))
+        # Obtener lista de archivos explícitamente
+        all_files = os.listdir(OPERATIONS_DIR)
+        json_files = [f for f in all_files if f.endswith('.json')]
         
-        # Forzar actualización de la lista - leer del sistema de archivos cada vez
-        print(f"Encontrados {len(operation_files)} archivos de operaciones en {OPERATIONS_DIR}")
+        print(f"Total de archivos en el directorio: {len(all_files)}")
+        print(f"Archivos JSON en el directorio: {len(json_files)}")
         
-        # Cargar cada operación fresca desde el disco
+        # Si llegamos aquí, usamos el método de archivos
+        operations = []
+        
+        # Listar archivos JSON - Leer directamente del directorio
+        operation_files = [os.path.join(OPERATIONS_DIR, f) for f in json_files]
+        
+        print(f"Leyendo {len(operation_files)} archivos de operaciones...")
+        
+        # Cargar cada operación
         for file_path in operation_files:
             try:
                 operation_id = os.path.basename(file_path)[:-5]  # Quitar extensión .json
                 
-                # Leer el archivo con cada solicitud para obtener datos frescos
+                # Leer archivo
                 with open(file_path, 'r') as f:
                     operation_data = json.load(f)
                 
@@ -331,24 +381,40 @@ def list_operations():
                     5: 'CANCELLED'
                 }
                 
-                # Agregar a lista de operaciones
+                # Obtener timestamp o usar 0 si no existe
+                timestamp = operation_data.get('timestamp', 0)
+                
+                # Agregar a lista de operaciones con timestamp
                 operations.append({
                     'operation_id': operation_id,
                     'status': status_map.get(operation_data.get('status', 0), 'UNKNOWN'),
-                    'message': operation_data.get('message', 'Sin mensaje')
+                    'message': operation_data.get('message', 'Sin mensaje'),
+                    'timestamp': timestamp
                 })
             except Exception as e:
                 print(f"Error al cargar operación {file_path}: {str(e)}")
         
-        # Ordenar las operaciones para mejor visualización (opcional)
-        operations.sort(key=lambda op: op['operation_id'])
+        # Ordenar las operaciones por timestamp en orden ascendente (más antiguas primero)
+        operations.sort(key=lambda op: op.get('timestamp', 0), reverse=False)
+        
+        # Crear lista para presentación (sin el timestamp)
+        presentation_operations = []
+        for i, op in enumerate(operations):
+            presentation_op = {
+                'operation_id': op['operation_id'],
+                'status': op['status'],
+                'message': op['message']
+            }
+            presentation_operations.append(presentation_op)
         
         return jsonify({
-            'count': len(operations),
-            'operations': operations
+            'count': len(presentation_operations),
+            'operations': presentation_operations,
+            'source': 'files'
         })
     
     except Exception as e:
+        print(f"Error general en list_operations: {str(e)}")
         return jsonify({
             'error': f'Error al listar operaciones: {str(e)}'
         }), 500

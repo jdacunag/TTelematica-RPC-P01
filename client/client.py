@@ -213,7 +213,8 @@ def interactive_mode():
                 check_specific = input("\n¿Desea consultar el estado de alguna operación? (s/n): ")
                 if check_specific.lower() == 's':
                     try:
-                        index = int(input("Ingrese el número de la operación: ")) - 1
+                        # En el código del cliente, cuando se procesa la selección del usuario
+                        index = int(input("Ingrese el número de la operación: ")) - 1  # Restar 1 para ajustar al índice basado en 0
                         if 0 <= index < len(operations):
                             check_operation_status(operations[index]['operation_id'])
                         else:
