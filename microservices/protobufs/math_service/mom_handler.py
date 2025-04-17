@@ -23,45 +23,73 @@ def process_pending_operations():
     """
     print("Buscando operaciones pendientes...")
     
-    # Buscar operaciones en PENDING
+    # 1. Buscar operaciones en memoria con estado PENDING
     pending_ops = {}
     for op_id, op_data in async_operations.items():
         if op_data.get("status") == 1:  # PENDING
             pending_ops[op_id] = op_data
     
-    if not pending_ops:
-        print("No hay operaciones pendientes en memoria")
-        
-        # Buscar en archivos locales
-        operations_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "operations")
-        if os.path.exists(operations_dir):
-            for filename in os.listdir(operations_dir):
-                if not filename.endswith('.json'):
-                    continue
-                
-                op_id = filename[:-5]  # Quitar extensión .json
-                if op_id not in async_operations:
-                    try:
-                        file_path = os.path.join(operations_dir, filename)
-                        with open(file_path, 'r') as f:
-                            operation_data = json.load(f)
-                        
-                        # Verificar si es una operación pendiente
-                        if operation_data.get("status") == 1:  # PENDING
-                            a = operation_data.get("a")
-                            b = operation_data.get("b")
-                            
-                            if a is not None and b is not None:
-                                print(f"Cargada operación pendiente desde archivo: {op_id}")
-                                async_operations[op_id] = operation_data
-                                pending_ops[op_id] = operation_data
-                    except Exception as e:
-                        print(f"Error al cargar operación {filename}: {str(e)}")
-        
     if pending_ops:
-        print(f"Encontradas {len(pending_ops)} operaciones pendientes")
+        print(f"Encontradas {len(pending_ops)} operaciones pendientes en memoria")
+    else:
+        print("No hay operaciones pendientes en memoria")
+    
+    # 2. Buscar operaciones en archivos locales
+    operations_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "operations")
+    if os.path.exists(operations_dir):
+        # Escanear todos los archivos .json en el directorio
+        for filename in os.listdir(operations_dir):
+            if not filename.endswith('.json'):
+                continue
+            
+            op_id = filename[:-5]  # Quitar extensión .json
+            # Si ya está en memoria, omitirla
+            if op_id in pending_ops:
+                continue
+                
+            try:
+                file_path = os.path.join(operations_dir, filename)
+                with open(file_path, 'r') as f:
+                    operation_data = json.load(f)
+                
+                # IMPORTANTE: El API Gateway guarda las operaciones en formato diferente
+                # Verificar campos específicos del API Gateway (message: "Operación en cola (API Gateway)")
+                if (operation_data.get("status") == 1 and 
+                    "API Gateway" in operation_data.get("message", "") and
+                    op_id not in async_operations):
+                    
+                    # Extraer datos de la operación guardada por el API Gateway
+                    a = operation_data.get("a")
+                    b = operation_data.get("b")
+                    
+                    if a is not None and b is not None:
+                        print(f"Encontrada operación pendiente del API Gateway: {op_id} (suma de {a} + {b})")
+                        
+                        # Procesar la operación inmediatamente
+                        process_async_operation(op_id, a, b)
+                        print(f"Operación {op_id} procesada exitosamente")
+                        
+                    else:
+                        print(f"Operación {op_id} del API Gateway incompleta, faltan valores")
+                
+                # Verificar si es una operación pendiente normal
+                elif operation_data.get("status") == 1 and op_id not in async_operations:
+                    a = operation_data.get("a")
+                    b = operation_data.get("b")
+                    
+                    if a is not None and b is not None:
+                        print(f"Encontrada operación pendiente en archivo: {op_id}")
+                        pending_ops[op_id] = operation_data
+                    else:
+                        print(f"Operación {op_id} en archivo incompleta, faltan valores")
+                        
+            except Exception as e:
+                print(f"Error al procesar archivo {filename}: {str(e)}")
+    
+    # 3. Procesar las operaciones pendientes encontradas
+    if pending_ops and len(pending_ops) > 0:
+        print(f"Procesando {len(pending_ops)} operaciones pendientes...")
         
-        # Procesar cada operación pendiente
         for op_id, op_data in pending_ops.items():
             try:
                 # Extraer a y b
@@ -80,7 +108,7 @@ def process_pending_operations():
             except Exception as e:
                 print(f"Error al procesar operación pendiente {op_id}: {str(e)}")
     else:
-        print("No se encontraron operaciones pendientes")
+        print("No se encontraron operaciones pendientes adicionales para procesar")
 
 class MOMHandler:
     def __init__(self):
