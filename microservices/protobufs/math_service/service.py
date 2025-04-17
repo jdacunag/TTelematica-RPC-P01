@@ -126,7 +126,15 @@ class MathService(operation_pb2_grpc.MathServiceServicer):
             
             # Agregar resultado si está disponible
             if "result" in operation:
-                response.result.CopyFrom(operation["result"])
+                # Crear un nuevo objeto OperationResponse
+                result_obj = operation_pb2.OperationResponse(
+                    result=operation["result"]["result"],
+                    success=operation["result"]["success"],
+                    error_message=operation["result"]["error_message"],
+                    operation_id=operation["result"]["operation_id"]
+                )
+                # Asignar este objeto al campo result de la respuesta
+                response.result.CopyFrom(result_obj)
             
             return response
         else:

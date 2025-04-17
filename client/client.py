@@ -87,15 +87,17 @@ def check_operation_status(operation_id):
     Consulta periódicamente el estado de una operación
     """
     url = f"{API_GATEWAY_URL}/math/operation/status/{operation_id}"
-    max_attempts = 10
+    max_attempts = 3  # Limitado a solo 3 intentos
     attempt = 0
     
     print(f"\nConsultando estado de la operación: {operation_id}")
+    print(f"Se realizarán como máximo {max_attempts} intentos")
     
     while attempt < max_attempts:
         attempt += 1
         
         try:
+            print(f"Intento {attempt} de {max_attempts}...")
             response = requests.get(url)
             
             if response.status_code == 200:
@@ -104,7 +106,7 @@ def check_operation_status(operation_id):
                 message = data.get('message', 'Sin mensaje')
                 source = data.get('source', 'server')
                 
-                print(f"Intento {attempt}: Estado = {status}, Mensaje: {message}")
+                print(f"Estado = {status}, Mensaje: {message}")
                 if source != 'server':
                     print(f"Fuente de datos: {source}")
                 
@@ -113,24 +115,30 @@ def check_operation_status(operation_id):
                     if 'result' in data:
                         print(f"Resultado: {data['result']['value']}")
                         print(f"Éxito: {data['result']['success']}")
-                    break
+                    return  # Salir de la función
                 
                 # Esperar antes del siguiente intento
                 time.sleep(2)
             else:
                 print(f"Error al consultar estado: {response.status_code}")
                 print(response.text)
+                
+                # Si es un error de servidor, detenemos inmediatamente
+                if response.status_code >= 500:
+                    print("Error del servidor detectado. Cancelando intentos restantes.")
+                    return  # Salir inmediatamente si hay error de servidor
+                
                 time.sleep(2)
         
         except requests.RequestException as e:
             print(f"Error de conexión: {str(e)}")
             print("¿Está el API Gateway ejecutándose?")
-            time.sleep(2)
+            # No seguir intentando si hay problemas de conexión
+            return
     
-    if attempt >= max_attempts:
-        print("Se alcanzó el número máximo de intentos sin obtener un resultado final")
-        print("La operación podría seguir procesándose en segundo plano")
-        print(f"Puede consultar su estado más tarde con el ID: {operation_id}")
+    print("\nSe alcanzó el número máximo de intentos sin obtener un resultado final")
+    print("La operación podría seguir procesándose en segundo plano")
+    print(f"Puede consultar su estado más tarde con el ID: {operation_id}")
 
 def list_operations():
     """

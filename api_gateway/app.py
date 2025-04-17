@@ -283,10 +283,14 @@ def operation_status(operation_id):
                 raise e
     
     except Exception as e:
-        # Manejar error general
+    # Manejar error general
+        error_code = 'UNKNOWN'
+        if hasattr(e, 'code'):
+            error_code = str(e.code())
+        
         return jsonify({
             'error': f'Error al consultar estado: {str(e)}',
-            'code': getattr(e, 'code', lambda: 'UNKNOWN')()
+            'code': error_code
         }), 500
 
 @app.route('/operations', methods=['GET'])
