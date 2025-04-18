@@ -37,7 +37,8 @@ def sum_operation(a, b):
     """
     Realiza una operación de suma a través del API Gateway
     """
-    url = f"{API_GATEWAY_URL}/math/sum"
+    # Ruta actualizada para coincidir con el API Gateway
+    url = f"{API_GATEWAY_URL}/sum"
     
     # Generar ID único para la operación
     operation_id = str(uuid.uuid4())
@@ -86,7 +87,8 @@ def check_operation_status(operation_id):
     """
     Consulta periódicamente el estado de una operación
     """
-    url = f"{API_GATEWAY_URL}/math/operation/status/{operation_id}"
+    # Ruta actualizada para coincidir con el API Gateway
+    url = f"{API_GATEWAY_URL}/operation/status/{operation_id}"
     max_attempts = 3  # Limitado a solo 3 intentos
     attempt = 0
     
