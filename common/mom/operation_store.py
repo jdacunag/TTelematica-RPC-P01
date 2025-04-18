@@ -1,6 +1,6 @@
 """
 Módulo para gestionar el almacenamiento y recuperación de operaciones.
-Maneja la persistencia de operaciones en memoria y en disco.
+Maneja la persistencia de operaciones en memoria y en MongoDB Atlas.
 """
 
 import json
@@ -10,6 +10,9 @@ import time
 import threading
 import logging
 from enum import Enum
+
+# Importar la clase OperationsDB
+from common.db.operations_db import OperationsDB
 
 # Configuración de logging
 logging.basicConfig(level=logging.INFO)
@@ -36,56 +39,27 @@ class OperationStore:
         """
         self.service_module = service_module
         self.async_operations = {}
-        self.operations_dir = self._init_operations_dir()
+        self.db = OperationsDB.get_instance()
         
         # Cargar operaciones existentes
         self._load_operations()
     
-    def _init_operations_dir(self):
-        """
-        Inicializa el directorio para almacenar operaciones
-        
-        Returns:
-            str: Ruta al directorio de operaciones
-        """
-        # Por defecto, usar directorio "operations" en la ubicación actual
-        operations_dir = os.path.join(os.getcwd(), "operations")
-        
-        # Si el servicio proporciona una ruta, usarla
-        if self.service_module and hasattr(self.service_module, "OPERATIONS_DIR"):
-            operations_dir = self.service_module.OPERATIONS_DIR
-        
-        # Crear directorio si no existe
-        if not os.path.exists(operations_dir):
-            try:
-                os.makedirs(operations_dir)
-                logger.info(f"Directorio de operaciones creado: {operations_dir}")
-            except Exception as e:
-                logger.error(f"Error al crear directorio de operaciones: {str(e)}")
-        
-        return operations_dir
-    
     def _load_operations(self):
-        """Carga operaciones desde archivos al diccionario en memoria"""
-        if not os.path.exists(self.operations_dir):
-            return
-        
-        for filename in os.listdir(self.operations_dir):
-            if filename.endswith('.json'):
-                try:
-                    operation_id = filename[:-5]  # Quitar extensión .json
-                    file_path = os.path.join(self.operations_dir, filename)
-                    
-                    with open(file_path, 'r') as f:
-                        operation_data = json.load(f)
-                        self.async_operations[operation_id] = operation_data
-                        logger.info(f"Cargada operación: {operation_id}")
-                except Exception as e:
-                    logger.error(f"Error al cargar operación {filename}: {str(e)}")
+        """Carga operaciones pendientes desde MongoDB Atlas al diccionario en memoria"""
+        try:
+            # Obtener todas las operaciones pendientes de MongoDB Atlas
+            pending_ops = self.db.get_pending_operations()
+            
+            # Cargar en memoria
+            for op_id, op_data in pending_ops.items():
+                self.async_operations[op_id] = op_data
+                logger.info(f"Cargada operación pendiente desde MongoDB Atlas: {op_id}")
+        except Exception as e:
+            logger.error(f"Error al cargar operaciones desde MongoDB Atlas: {str(e)}")
     
     def save_operation(self, operation_id, operation_data):
         """
-        Guarda una operación en un archivo JSON
+        Guarda una operación en MongoDB Atlas
         
         Args:
             operation_id: ID de la operación
@@ -95,12 +69,15 @@ class OperationStore:
             bool: True si se guardó correctamente, False en caso contrario
         """
         try:
-            file_path = os.path.join(self.operations_dir, f"{operation_id}.json")
-            with open(file_path, 'w') as f:
-                json.dump(operation_data, f, default=lambda o: str(o))
-            return True
+            # Guardar en MongoDB Atlas
+            success = self.db.save_operation(operation_id, operation_data)
+            if success:
+                logger.info(f"Operación {operation_id} guardada en MongoDB Atlas")
+            else:
+                logger.warning(f"No se pudo guardar la operación {operation_id} en MongoDB Atlas")
+            return success
         except Exception as e:
-            logger.error(f"Error al guardar operación {operation_id}: {str(e)}")
+            logger.error(f"Error al guardar operación {operation_id} en MongoDB Atlas: {str(e)}")
             return False
     
     def get_operation(self, operation_id):
@@ -117,19 +94,19 @@ class OperationStore:
         if operation_id in self.async_operations:
             return self.async_operations[operation_id]
         
-        # Si no está en memoria, buscar en archivos
-        file_path = os.path.join(self.operations_dir, f"{operation_id}.json")
-        if os.path.exists(file_path):
-            try:
-                with open(file_path, 'r') as f:
-                    operation_data = json.load(f)
-                    # Cargar en memoria para futuros accesos
-                    self.async_operations[operation_id] = operation_data
-                    return operation_data
-            except Exception as e:
-                logger.error(f"Error al leer operación {operation_id}: {str(e)}")
-        
-        return None
+        # Si no está en memoria, buscar en MongoDB Atlas
+        try:
+            operation = self.db.get_operation(operation_id)
+            
+            # Si se encontró, actualizar caché
+            if operation:
+                self.async_operations[operation_id] = operation
+                return operation
+            
+            return None
+        except Exception as e:
+            logger.error(f"Error al obtener operación {operation_id} desde MongoDB Atlas: {str(e)}")
+            return None
     
     def register_pending_operation(self, operation_id, a, b):
         """
@@ -154,7 +131,7 @@ class OperationStore:
         # Guardar en memoria
         self.async_operations[operation_id] = op_data
         
-        # Guardar en disco
+        # Guardar en MongoDB Atlas
         self.save_operation(operation_id, op_data)
         
         return op_data
@@ -268,8 +245,10 @@ class OperationStore:
         if result:
             operation["result"] = result
         
-        # Guardar cambios
+        # Guardar cambios en memoria
         self.async_operations[operation_id] = operation
+        
+        # Guardar en MongoDB Atlas
         self.save_operation(operation_id, operation)
         
         return operation
@@ -326,35 +305,16 @@ class OperationStore:
         Returns:
             dict: Diccionario de operaciones pendientes {id: datos}
         """
-        pending_ops = {}
-        
-        # Buscar en memoria
-        for op_id, op_data in self.async_operations.items():
-            if op_data.get("status") == OperationStatus.PENDING.value:
-                pending_ops[op_id] = op_data
-        
-        # Buscar en archivos (operaciones que no están en memoria)
-        if os.path.exists(self.operations_dir):
-            for filename in os.listdir(self.operations_dir):
-                if not filename.endswith('.json'):
-                    continue
-                
-                op_id = filename[:-5]  # Quitar extensión .json
-                
-                # Si ya está en nuestro diccionario, omitirla
-                if op_id in pending_ops:
-                    continue
-                    
-                try:
-                    file_path = os.path.join(self.operations_dir, filename)
-                    with open(file_path, 'r') as f:
-                        operation_data = json.load(f)
-                    
-                    if operation_data.get("status") == OperationStatus.PENDING.value:
-                        # Verificar que tenga los datos necesarios
-                        if "a" in operation_data and "b" in operation_data:
-                            pending_ops[op_id] = operation_data
-                except Exception as e:
-                    logger.error(f"Error al procesar archivo {filename}: {str(e)}")
-        
-        return pending_ops
+        try:
+            # Obtener operaciones pendientes de MongoDB Atlas
+            return self.db.get_pending_operations()
+        except Exception as e:
+            logger.error(f"Error al obtener operaciones pendientes de MongoDB Atlas: {str(e)}")
+            
+            # Si hay error con MongoDB, usar la caché en memoria
+            pending_ops = {}
+            for op_id, op_data in self.async_operations.items():
+                if op_data.get("status") == OperationStatus.PENDING.value:
+                    pending_ops[op_id] = op_data
+            
+            return pending_ops

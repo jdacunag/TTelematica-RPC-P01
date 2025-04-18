@@ -1,7 +1,6 @@
 from flask import Flask, request, jsonify
 import grpc
 import uuid
-import json
 import sys
 import os
 import time
@@ -12,6 +11,7 @@ project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '../'))
 sys.path.append(project_root)
 sys.path.append(os.path.abspath('../microservices/sum_service'))
 sys.path.append(os.path.abspath('../microservices/subtract_service'))
+sys.path.append(os.path.abspath('../microservices/multiply_service'))
 sys.path.append(os.path.abspath('../microservices/protobufs'))
 
 # Cargar variables de entorno
@@ -31,9 +31,6 @@ db = OperationsDB.get_instance()
 import operation_pb2
 import operation_pb2_grpc
 
-# Directorio donde se almacenan las operaciones persistentes (para compatibilidad)
-OPERATIONS_DIR = os.path.abspath('../microservices/protobufs/operations')
-
 # Configuración para múltiples servicios
 SERVICES = {
     'sum': {
@@ -49,6 +46,13 @@ SERVICES = {
         'path': os.path.abspath('../microservices/subtract_service'),
         'server_address': 'localhost:50052',  # Puerto diferente
         'service_id': 'subtract_service_01'
+    },
+    'multiply': {
+        'stub_module': 'operation_pb2_grpc',
+        'stub_class': 'MultiplyServiceStub',
+        'path': os.path.abspath('../microservices/multiply_service'),
+        'server_address': 'localhost:50053',  # Puerto diferente
+        'service_id': 'multiply_service_01'
     }
     # Aquí se pueden añadir más servicios en el futuro
 }
@@ -262,17 +266,6 @@ def sum_operation():
             # Guardar en MongoDB Atlas
             db.save_operation(operation_id, operation_data)
             
-            # Mantener compatibilidad con archivos
-            try:
-                if not os.path.exists(OPERATIONS_DIR):
-                    os.makedirs(OPERATIONS_DIR)
-                
-                file_path = os.path.join(OPERATIONS_DIR, f"{operation_id}.json")
-                with open(file_path, 'w') as f:
-                    json.dump(operation_data, f)
-            except Exception as file_error:
-                print(f"Error al guardar operación en archivo: {str(file_error)}")
-            
             return jsonify({
                 'success': False,
                 'message': 'Servicio temporalmente no disponible. La operación ha sido encolada.',
@@ -385,23 +378,124 @@ def subtract_operation():
             # Guardar en MongoDB Atlas
             db.save_operation(operation_id, operation_data)
             
-            # Mantener compatibilidad con archivos
-            try:
-                if not os.path.exists(OPERATIONS_DIR):
-                    os.makedirs(OPERATIONS_DIR)
-                
-                file_path = os.path.join(OPERATIONS_DIR, f"{operation_id}.json")
-                with open(file_path, 'w') as f:
-                    json.dump(operation_data, f)
-            except Exception as file_error:
-                print(f"Error al guardar operación en archivo: {str(file_error)}")
-            
             return jsonify({
                 'success': False,
                 'message': 'Servicio temporalmente no disponible. La operación ha sido encolada.',
                 'operation_id': operation_id,
                 'status': 'QUEUED',
                 'service': 'subtract'
+            }), 202  # Respuesta 202 Accepted
+        
+        # Otros errores gRPC
+        return jsonify({
+            'error': f'Error RPC: {e.details()}',
+            'code': str(e.code())
+        }), 500
+    
+    except Exception as e:
+        # Manejar otros errores
+        return jsonify({
+            'error': f'Error general: {str(e)}'
+        }), 500
+
+@app.route('/multiply', methods=['POST'])
+def multiply_operation():
+    """
+    Endpoint para realizar una multiplicación
+    """
+    # Obtener datos de la solicitud
+    data = request.json
+    
+    if not data:
+        return jsonify({
+            'error': 'Datos no proporcionados'
+        }), 400
+    
+    # Extraer y validar los operandos
+    a_value = data.get('a')
+    b_value = data.get('b')
+    
+    if a_value is None or b_value is None:
+        return jsonify({
+            'error': 'Se requieren los parámetros "a" y "b"'
+        }), 400
+    
+    # Verificar que los valores sean numéricos
+    try:
+        a_value = int(a_value)
+        b_value = int(b_value)
+    except ValueError:
+        return jsonify({
+            'error': 'Los valores de "a" y "b" deben ser numéricos'
+        }), 400
+    
+    # Obtener ID de operación si se proporciona, o generar uno nuevo
+    operation_id = data.get('operation_id', str(uuid.uuid4()))
+    
+    try:
+        # Obtener stub para el servicio de multiplicación
+        stub = get_service_stub('multiply')
+        
+        # Crear solicitud gRPC
+        request_proto = operation_pb2.MultiplyRequest(
+            a=a_value,
+            b=b_value,
+            operation_id=operation_id
+        )
+        
+        # Llamar al servicio gRPC
+        response = stub.Multiply(request_proto)
+        
+        # Solicitar estado para forzar persistencia
+        try:
+            status_request = operation_pb2.AsyncOperationRequest(
+                operation_id=operation_id
+            )
+            stub.GetAsyncOperationStatus(status_request)
+        except Exception as status_error:
+            print(f"Error al verificar estado después de multiplicación: {str(status_error)}")
+        
+        # Verificar si fue exitoso o encolado
+        if response.success:
+            return jsonify({
+                'result': response.result,
+                'success': response.success,
+                'operation_id': response.operation_id,
+                'service': 'multiply'
+            })
+        else:
+            # Si no fue exitoso, puede ser que se haya encolado
+            return jsonify({
+                'success': False,
+                'message': response.error_message,
+                'operation_id': response.operation_id,
+                'status': 'QUEUED',
+                'service': 'multiply'
+            }), 202  # Respuesta 202 Accepted
+    
+    except grpc.RpcError as e:
+        # Manejar caso de servicio no disponible
+        if e.code() == grpc.StatusCode.UNAVAILABLE:
+            # Guardar la operación en MongoDB Atlas
+            operation_data = {
+                "status": 1,  # PENDING
+                "message": "Operación en cola (API Gateway)",
+                "timestamp": time.time(),
+                "a": a_value,
+                "b": b_value,
+                "service": "multiply",
+                "operation_id": operation_id
+            }
+            
+            # Guardar en MongoDB Atlas
+            db.save_operation(operation_id, operation_data)
+            
+            return jsonify({
+                'success': False,
+                'message': 'Servicio temporalmente no disponible. La operación ha sido encolada.',
+                'operation_id': operation_id,
+                'status': 'QUEUED',
+                'service': 'multiply'
             }), 202  # Respuesta 202 Accepted
         
         # Otros errores gRPC
@@ -511,47 +605,7 @@ def operation_status(operation_id):
                     
                     return jsonify(result)
                 else:
-                    # Si no se encuentra en MongoDB Atlas, buscar en archivos para compatibilidad
-                    file_path = os.path.join(OPERATIONS_DIR, f"{operation_id}.json")
-                    if os.path.exists(file_path):
-                        try:
-                            with open(file_path, 'r') as f:
-                                operation = json.load(f)
-                            
-                            # Guardar en MongoDB Atlas para futuros accesos
-                            db.save_operation(operation_id, operation)
-                            
-                            # Mapear códigos de estado a texto
-                            status_map = {
-                                0: 'UNKNOWN',
-                                1: 'PENDING',
-                                2: 'PROCESSING',
-                                3: 'COMPLETED',
-                                4: 'FAILED',
-                                5: 'CANCELLED'
-                            }
-                            
-                            # Crear respuesta
-                            result = {
-                                'operation_id': operation_id,
-                                'status': status_map.get(operation.get('status', 0), 'UNKNOWN'),
-                                'message': operation.get('message', 'Sin mensaje'),
-                                'source': 'file_storage',
-                                'service': operation.get('service', 'unknown')
-                            }
-                            
-                            # Agregar resultado si está disponible
-                            if 'result' in operation and operation.get('status') == 3:  # COMPLETED
-                                result['result'] = {
-                                    'value': operation['result'].get('result', 0),
-                                    'success': operation['result'].get('success', False)
-                                }
-                            
-                            return jsonify(result)
-                        except Exception as e:
-                            print(f"Error al leer operación desde archivo: {str(e)}")
-                    
-                    # Si no se encuentra en ninguna parte
+                    # Si no se encuentra en MongoDB Atlas
                     return jsonify({
                         'operation_id': operation_id,
                         'status': 'UNKNOWN',
@@ -662,14 +716,6 @@ if __name__ == '__main__':
         print("Conectado a MongoDB Atlas exitosamente")
     else:
         print("ADVERTENCIA: No hay conexión a MongoDB Atlas")
-    
-    # Verificar directorio de operaciones (para compatibilidad)
-    if not os.path.exists(OPERATIONS_DIR):
-        try:
-            os.makedirs(OPERATIONS_DIR)
-            print(f"Directorio de operaciones creado: {OPERATIONS_DIR}")
-        except Exception as e:
-            print(f"Error al crear directorio de operaciones: {str(e)}")
     
     # Iniciar servidor Flask
     app.run(host='0.0.0.0', port=5000, debug=True)

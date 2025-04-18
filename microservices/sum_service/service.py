@@ -1,6 +1,5 @@
 import time
 import uuid
-import json
 import os
 import operation_pb2
 import operation_pb2_grpc
@@ -18,13 +17,6 @@ from common.db.operations_db import OperationsDB
 
 # Inicializar la conexión a MongoDB Atlas
 db = OperationsDB.get_instance()
-
-# Ruta para almacenamiento de archivos (mantener para compatibilidad)
-OPERATIONS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "protobufs", "operations")
-
-# Crear directorio si no existe (se mantiene para compatibilidad)
-if not os.path.exists(OPERATIONS_DIR):
-    os.makedirs(OPERATIONS_DIR)
 
 # Diccionario para cache en memoria de operaciones
 async_operations = {}
@@ -81,15 +73,6 @@ class SumService(operation_pb2_grpc.SumServiceServicer):
             async_operations[operation_id] = operation_data
             success_mongo = db.save_operation(operation_id, operation_data)
             print(f"Guardado en MongoDB Atlas: {'Éxito' if success_mongo else 'Fallo'} - {operation_id}")
-            
-            # Mantener compatibilidad con archivos
-            try:
-                file_path = os.path.join(OPERATIONS_DIR, f"{operation_id}.json")
-                with open(file_path, 'w') as f:
-                    json.dump(operation_data, f, default=lambda o: str(o))
-                print(f"Guardado en archivo local: Éxito - {operation_id}")
-            except Exception as e:
-                print(f"Error al guardar en archivo: {str(e)}")
             
             return response
         except Exception as e:
