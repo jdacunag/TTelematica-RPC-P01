@@ -29,8 +29,10 @@ def load_operations():
                 
                 with open(file_path, 'r') as f:
                     operation_data = json.load(f)
-                    async_operations[operation_id] = operation_data
-                    print(f"Cargada operación: {operation_id}")
+                    # Solo cargar operaciones de multiplicación (service="mult")
+                    if operation_data.get('service') == 'mult':
+                        async_operations[operation_id] = operation_data
+                        print(f"Cargada operación de multiplicación: {operation_id}")
             except Exception as e:
                 print(f"Error al cargar operación {filename}: {str(e)}")
 
@@ -47,17 +49,17 @@ def save_operation(operation_id, operation_data):
 # Cargar operaciones al inicio
 load_operations()
 
-class SumService(operation_pb2_grpc.SumServiceServicer):
+class MultService(operation_pb2_grpc.MultServiceServicer):
     def __init__(self):
         # Tiempo de inicio del servicio para calcular el uptime
         self.start_time = time.time()
-        self.service_id = "sum_service_01"  # ID actualizado
+        self.service_id = "mult_service_01"
     
-    def Sum(self, request, context):
+    def Mult(self, request, context):
         """
-        Implementación de la operación de suma síncrona
+        Implementación de la operación de multiplicación síncrona
         """
-        print(f"Recibida solicitud de suma: {request.a} + {request.b}")
+        print(f"Recibida solicitud de multiplicación: {request.a} * {request.b}")
         
         # Generar ID de operación si no viene uno
         operation_id = request.operation_id
@@ -65,11 +67,11 @@ class SumService(operation_pb2_grpc.SumServiceServicer):
             operation_id = str(uuid.uuid4())
         
         try:
-            # Realizar la operación de suma
-            result = request.a + request.b
+            # Realizar la operación de multiplicación
+            result = request.a * request.b
             
-            # Crear y retornar la respuesta con el tipo actualizado
-            return operation_pb2.SumResponse(
+            # Crear y retornar la respuesta
+            return operation_pb2.MultResponse(
                 result=result,
                 success=True,
                 error_message="",
@@ -77,7 +79,7 @@ class SumService(operation_pb2_grpc.SumServiceServicer):
             )
         except Exception as e:
             # En caso de error, retornar respuesta con error
-            return operation_pb2.SumResponse(
+            return operation_pb2.MultResponse(
                 result=0,
                 success=False,
                 error_message=str(e),
@@ -97,7 +99,7 @@ class SumService(operation_pb2_grpc.SumServiceServicer):
         if request.service_id == self.service_id:
             return operation_pb2.StatusResponse(
                 status=operation_pb2.StatusResponse.ServiceStatus.RUNNING,
-                message="Servicio de suma funcionando correctamente",  # Mensaje actualizado
+                message="Servicio de multiplicación funcionando correctamente",
                 uptime=uptime
             )
         else:
@@ -126,8 +128,8 @@ class SumService(operation_pb2_grpc.SumServiceServicer):
             
             # Agregar resultado si está disponible
             if "result" in operation:
-                # Crear un nuevo objeto SumResponse (actualizado)
-                result_obj = operation_pb2.SumResponse(
+                # Crear un nuevo objeto OperationResult para asegurar compatibilidad
+                result_obj = operation_pb2.OperationResult(
                     result=operation["result"]["result"],
                     success=operation["result"]["success"],
                     error_message=operation["result"]["error_message"],
@@ -145,6 +147,13 @@ class SumService(operation_pb2_grpc.SumServiceServicer):
                     with open(file_path, 'r') as f:
                         operation = json.load(f)
                         
+                    # Verificar que sea una operación de multiplicación
+                    if operation.get('service') != 'mult':
+                        return operation_pb2.AsyncOperationResponse(
+                            status=operation_pb2.AsyncOperationResponse.OperationStatus.UNKNOWN,
+                            message=f"Operación no pertenece al servicio de multiplicación: {operation_id}"
+                        )
+                    
                     # Cargar en memoria
                     async_operations[operation_id] = operation
                     
@@ -162,7 +171,7 @@ class SumService(operation_pb2_grpc.SumServiceServicer):
                         result.error_message = operation["result"]["error_message"]
                         result.operation_id = operation["result"]["operation_id"]
                         response.result.CopyFrom(result)
-                                            
+                    
                     return response
                 except Exception as e:
                     print(f"Error al cargar operación desde archivo: {str(e)}")
@@ -176,13 +185,14 @@ class SumService(operation_pb2_grpc.SumServiceServicer):
 # Función para procesar operaciones asíncronas (se usará con el MOM)
 def process_async_operation(operation_id, a, b):
     """
-    Procesa una operación asíncrona y actualiza su estado
+    Procesa una operación asíncrona de multiplicación y actualiza su estado
     """
     # Registrar operación como pendiente
     op_data = {
         "status": operation_pb2.AsyncOperationResponse.OperationStatus.PENDING,
-        "message": "Operación en cola",
-        "timestamp": time.time()  # Añadir timestamp
+        "message": "Operación de multiplicación en cola",
+        "timestamp": time.time(),
+        "service": "mult"  # Importante: identificar el servicio
     }
     async_operations[operation_id] = op_data
     save_operation(operation_id, op_data)
@@ -194,17 +204,18 @@ def process_async_operation(operation_id, a, b):
         # Actualizar estado a procesando
         op_data = {
             "status": operation_pb2.AsyncOperationResponse.OperationStatus.PROCESSING,
-            "message": "Procesando operación de suma",  # Mensaje actualizado
-            "timestamp": time.time()  # Actualizar timestamp
+            "message": "Procesando operación de multiplicación",
+            "timestamp": time.time(),
+            "service": "mult"
         }
         async_operations[operation_id] = op_data
         save_operation(operation_id, op_data)
         
         # Realizar la operación
-        result = a + b
+        result = a * b
         
         # Crear resultado y actualizar estado a completado
-        response = operation_pb2.SumResponse(  # Actualizado a SumResponse
+        response = operation_pb2.MultResponse(
             result=result,
             success=True,
             error_message="",
@@ -221,9 +232,10 @@ def process_async_operation(operation_id, a, b):
         
         op_data = {
             "status": operation_pb2.AsyncOperationResponse.OperationStatus.COMPLETED,
-            "message": "Operación de suma completada",  # Mensaje actualizado
+            "message": "Operación de multiplicación completada",
             "result": result_dict,
-            "timestamp": time.time()  # Asegurarse de tener un timestamp actualizado
+            "timestamp": time.time(),
+            "service": "mult"
         }
         async_operations[operation_id] = op_data
         save_operation(operation_id, op_data)
@@ -241,9 +253,10 @@ def process_async_operation(operation_id, a, b):
         
         op_data = {
             "status": operation_pb2.AsyncOperationResponse.OperationStatus.FAILED,
-            "message": f"Error al procesar suma: {str(e)}",  # Mensaje actualizado
+            "message": f"Error al procesar multiplicación: {str(e)}",
             "result": result_dict,
-            "timestamp": time.time()  # Añadir timestamp en error también
+            "timestamp": time.time(),
+            "service": "mult"
         }
         async_operations[operation_id] = op_data
         save_operation(operation_id, op_data)

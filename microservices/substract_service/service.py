@@ -29,8 +29,10 @@ def load_operations():
                 
                 with open(file_path, 'r') as f:
                     operation_data = json.load(f)
-                    async_operations[operation_id] = operation_data
-                    print(f"Cargada operación: {operation_id}")
+                    # Solo cargar operaciones de resta (service="subtract")
+                    if operation_data.get('service') == 'subtract':
+                        async_operations[operation_id] = operation_data
+                        print(f"Cargada operación de resta: {operation_id}")
             except Exception as e:
                 print(f"Error al cargar operación {filename}: {str(e)}")
 
@@ -47,17 +49,17 @@ def save_operation(operation_id, operation_data):
 # Cargar operaciones al inicio
 load_operations()
 
-class SumService(operation_pb2_grpc.SumServiceServicer):
+class SubtractService(operation_pb2_grpc.SubtractServiceServicer):
     def __init__(self):
         # Tiempo de inicio del servicio para calcular el uptime
         self.start_time = time.time()
-        self.service_id = "sum_service_01"  # ID actualizado
+        self.service_id = "subtract_service_01"
     
-    def Sum(self, request, context):
+    def Subtract(self, request, context):
         """
-        Implementación de la operación de suma síncrona
+        Implementación de la operación de resta síncrona
         """
-        print(f"Recibida solicitud de suma: {request.a} + {request.b}")
+        print(f"Recibida solicitud de resta: {request.a} - {request.b}")
         
         # Generar ID de operación si no viene uno
         operation_id = request.operation_id
@@ -65,11 +67,11 @@ class SumService(operation_pb2_grpc.SumServiceServicer):
             operation_id = str(uuid.uuid4())
         
         try:
-            # Realizar la operación de suma
-            result = request.a + request.b
+            # Realizar la operación de resta
+            result = request.a - request.b
             
-            # Crear y retornar la respuesta con el tipo actualizado
-            return operation_pb2.SumResponse(
+            # Crear y retornar la respuesta
+            return operation_pb2.SubtractResponse(
                 result=result,
                 success=True,
                 error_message="",
@@ -77,7 +79,7 @@ class SumService(operation_pb2_grpc.SumServiceServicer):
             )
         except Exception as e:
             # En caso de error, retornar respuesta con error
-            return operation_pb2.SumResponse(
+            return operation_pb2.SubtractResponse(
                 result=0,
                 success=False,
                 error_message=str(e),
@@ -97,7 +99,7 @@ class SumService(operation_pb2_grpc.SumServiceServicer):
         if request.service_id == self.service_id:
             return operation_pb2.StatusResponse(
                 status=operation_pb2.StatusResponse.ServiceStatus.RUNNING,
-                message="Servicio de suma funcionando correctamente",  # Mensaje actualizado
+                message="Servicio de resta funcionando correctamente",
                 uptime=uptime
             )
         else:
@@ -126,7 +128,8 @@ class SumService(operation_pb2_grpc.SumServiceServicer):
             
             # Agregar resultado si está disponible
             if "result" in operation:
-                # Crear un nuevo objeto SumResponse (actualizado)
+                # Crear un nuevo objeto SumResponse
+                # Nota: Aunque se llama SumResponse, lo usamos también para resta
                 result_obj = operation_pb2.SumResponse(
                     result=operation["result"]["result"],
                     success=operation["result"]["success"],
@@ -145,6 +148,13 @@ class SumService(operation_pb2_grpc.SumServiceServicer):
                     with open(file_path, 'r') as f:
                         operation = json.load(f)
                         
+                    # Verificar que sea una operación de resta
+                    if operation.get('service') != 'subtract':
+                        return operation_pb2.AsyncOperationResponse(
+                            status=operation_pb2.AsyncOperationResponse.OperationStatus.UNKNOWN,
+                            message=f"Operación no pertenece al servicio de resta: {operation_id}"
+                        )
+                    
                     # Cargar en memoria
                     async_operations[operation_id] = operation
                     
@@ -162,7 +172,7 @@ class SumService(operation_pb2_grpc.SumServiceServicer):
                         result.error_message = operation["result"]["error_message"]
                         result.operation_id = operation["result"]["operation_id"]
                         response.result.CopyFrom(result)
-                                            
+                    
                     return response
                 except Exception as e:
                     print(f"Error al cargar operación desde archivo: {str(e)}")
@@ -176,13 +186,14 @@ class SumService(operation_pb2_grpc.SumServiceServicer):
 # Función para procesar operaciones asíncronas (se usará con el MOM)
 def process_async_operation(operation_id, a, b):
     """
-    Procesa una operación asíncrona y actualiza su estado
+    Procesa una operación asíncrona de resta y actualiza su estado
     """
     # Registrar operación como pendiente
     op_data = {
         "status": operation_pb2.AsyncOperationResponse.OperationStatus.PENDING,
-        "message": "Operación en cola",
-        "timestamp": time.time()  # Añadir timestamp
+        "message": "Operación de resta en cola",
+        "timestamp": time.time(),
+        "service": "subtract"  # Importante: identificar el servicio
     }
     async_operations[operation_id] = op_data
     save_operation(operation_id, op_data)
@@ -194,17 +205,18 @@ def process_async_operation(operation_id, a, b):
         # Actualizar estado a procesando
         op_data = {
             "status": operation_pb2.AsyncOperationResponse.OperationStatus.PROCESSING,
-            "message": "Procesando operación de suma",  # Mensaje actualizado
-            "timestamp": time.time()  # Actualizar timestamp
+            "message": "Procesando operación de resta",
+            "timestamp": time.time(),
+            "service": "subtract"
         }
         async_operations[operation_id] = op_data
         save_operation(operation_id, op_data)
         
         # Realizar la operación
-        result = a + b
+        result = a - b
         
         # Crear resultado y actualizar estado a completado
-        response = operation_pb2.SumResponse(  # Actualizado a SumResponse
+        response = operation_pb2.SubtractResponse(
             result=result,
             success=True,
             error_message="",
@@ -221,9 +233,10 @@ def process_async_operation(operation_id, a, b):
         
         op_data = {
             "status": operation_pb2.AsyncOperationResponse.OperationStatus.COMPLETED,
-            "message": "Operación de suma completada",  # Mensaje actualizado
+            "message": "Operación de resta completada",
             "result": result_dict,
-            "timestamp": time.time()  # Asegurarse de tener un timestamp actualizado
+            "timestamp": time.time(),
+            "service": "subtract"
         }
         async_operations[operation_id] = op_data
         save_operation(operation_id, op_data)
@@ -241,9 +254,10 @@ def process_async_operation(operation_id, a, b):
         
         op_data = {
             "status": operation_pb2.AsyncOperationResponse.OperationStatus.FAILED,
-            "message": f"Error al procesar suma: {str(e)}",  # Mensaje actualizado
+            "message": f"Error al procesar resta: {str(e)}",
             "result": result_dict,
-            "timestamp": time.time()  # Añadir timestamp en error también
+            "timestamp": time.time(),
+            "service": "subtract"
         }
         async_operations[operation_id] = op_data
         save_operation(operation_id, op_data)

@@ -53,10 +53,6 @@ package-lock.json
 .env.test.local
 .env.production.local
 
-# Archivos generados por Protocol Buffers
-*_pb2.py
-*_pb2_grpc.py
-
 # Archivos temporales
 *.tmp
 .cache/
