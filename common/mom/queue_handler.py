@@ -8,6 +8,7 @@ import uuid
 import threading
 import time
 import logging
+import os
 
 # Configuración de logging
 logging.basicConfig(level=logging.INFO)
@@ -140,6 +141,10 @@ class MessageQueueHandler:
             # Procesar operación usando el store
             result = self.operation_store.process_operation(operation_id, a, b)
             
+            # IMPORTANTE: Asegurar que la operación se guarde en el directorio de operaciones
+            # para que aparezca en el listado de API Gateway
+            self._save_operation_for_api_gateway(operation_id, result, a, b)
+            
             # Publicar resultado en RabbitMQ también
             result_message = {
                 'operation_id': operation_id,
@@ -171,6 +176,85 @@ class MessageQueueHandler:
                     self.operation_store.mark_as_failed(operation_id, str(e))
                 except Exception:
                     logger.error("No se pudo actualizar el estado de la operación")
+    
+    def _save_operation_for_api_gateway(self, operation_id, result, a, b):
+        """
+        Guarda la operación en el formato que espera el API Gateway
+        
+        Args:
+            operation_id: ID de la operación
+            result: Resultado de la operación
+            a: Primer operando
+            b: Segundo operando
+            
+        Returns:
+            bool: True si se guardó correctamente, False en caso contrario
+        """
+        try:
+            # Determinar la ruta del directorio de operaciones para el API Gateway
+            # Esta ruta debe coincidir con la que usa el API Gateway
+            api_gateway_operations_dir = None
+            
+            # Primero, intentar obtener la ruta desde el módulo de servicio
+            if hasattr(self.operation_store, "service_module") and self.operation_store.service_module:
+                if hasattr(self.operation_store.service_module, "OPERATIONS_DIR"):
+                    api_gateway_operations_dir = self.operation_store.service_module.OPERATIONS_DIR
+            
+            # Si no se pudo obtener la ruta, usar la ruta predeterminada
+            if not api_gateway_operations_dir:
+                # Intentar encontrar el directorio más probable
+                # Asumimos que estamos en un subdirectorio de la carpeta principal del proyecto
+                current_dir = os.path.dirname(os.path.abspath(__file__))
+                project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_dir)))
+                possible_paths = [
+                    os.path.join(project_root, "microservices", "protobufs", "math_service", "operations"),
+                    os.path.join(os.getcwd(), "operations"),
+                    os.path.join(os.getcwd(), "microservices", "protobufs", "math_service", "operations")
+                ]
+                
+                for path in possible_paths:
+                    if os.path.exists(path) or os.access(os.path.dirname(path), os.W_OK):
+                        api_gateway_operations_dir = path
+                        break
+                
+                if not api_gateway_operations_dir:
+                    # Si no se encontró ninguna ruta válida, usar la ruta del operation_store
+                    api_gateway_operations_dir = self.operation_store.operations_dir
+            
+            # Crear directorio si no existe
+            if not os.path.exists(api_gateway_operations_dir):
+                os.makedirs(api_gateway_operations_dir)
+            
+            # Determinar el estado correcto
+            status = 3  # COMPLETED
+            if isinstance(result, dict) and not result.get('success', False):
+                status = 4  # FAILED
+            
+            # Crear datos de la operación en el formato que espera el API Gateway
+            operation_data = {
+                "status": status,
+                "message": "Operación completada" if status == 3 else "Operación fallida",
+                "timestamp": time.time(),
+                "result": {
+                    "result": result.get('result', 0) if isinstance(result, dict) else result,
+                    "success": result.get('success', True) if isinstance(result, dict) else True,
+                    "error_message": result.get('error_message', "") if isinstance(result, dict) else "",
+                    "operation_id": operation_id
+                },
+                "a": a,
+                "b": b
+            }
+            
+            # Guardar en archivo
+            file_path = os.path.join(api_gateway_operations_dir, f"{operation_id}.json")
+            with open(file_path, 'w') as f:
+                json.dump(operation_data, f)
+            
+            logger.info(f"Operación {operation_id} guardada para API Gateway en {file_path}")
+            return True
+        except Exception as e:
+            logger.error(f"Error al guardar operación para API Gateway: {str(e)}")
+            return False
     
     def _publish_result(self, operation_id, result_message):
         """
@@ -229,6 +313,58 @@ class MessageQueueHandler:
         
         # Registrar operación como pendiente usando el store
         self.operation_store.register_pending_operation(operation_id, a, b)
+        
+        # IMPORTANTE: También registrar la operación pendiente para el API Gateway
+        try:
+            # Determinar la ruta del directorio de operaciones para el API Gateway
+            api_gateway_operations_dir = None
+            
+            # Primero, intentar obtener la ruta desde el módulo de servicio
+            if hasattr(self.operation_store, "service_module") and self.operation_store.service_module:
+                if hasattr(self.operation_store.service_module, "OPERATIONS_DIR"):
+                    api_gateway_operations_dir = self.operation_store.service_module.OPERATIONS_DIR
+            
+            # Si no se pudo obtener la ruta, usar una ruta predeterminada
+            if not api_gateway_operations_dir:
+                # Intentar encontrar el directorio más probable
+                current_dir = os.path.dirname(os.path.abspath(__file__))
+                project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_dir)))
+                possible_paths = [
+                    os.path.join(project_root, "microservices", "protobufs", "math_service", "operations"),
+                    os.path.join(os.getcwd(), "operations"),
+                    os.path.join(os.getcwd(), "microservices", "protobufs", "math_service", "operations")
+                ]
+                
+                for path in possible_paths:
+                    if os.path.exists(path) or os.access(os.path.dirname(path), os.W_OK):
+                        api_gateway_operations_dir = path
+                        break
+                
+                if not api_gateway_operations_dir:
+                    # Si no se encontró ninguna ruta válida, usar la ruta del operation_store
+                    api_gateway_operations_dir = self.operation_store.operations_dir
+            
+            # Crear directorio si no existe
+            if not os.path.exists(api_gateway_operations_dir):
+                os.makedirs(api_gateway_operations_dir)
+            
+            # Crear datos de la operación pendiente
+            operation_data = {
+                "status": 1,  # PENDING
+                "message": "Operación en cola (MOM)",
+                "timestamp": time.time(),
+                "a": a,
+                "b": b
+            }
+            
+            # Guardar en archivo
+            file_path = os.path.join(api_gateway_operations_dir, f"{operation_id}.json")
+            with open(file_path, 'w') as f:
+                json.dump(operation_data, f)
+            
+            logger.info(f"Operación pendiente {operation_id} guardada para API Gateway en {file_path}")
+        except Exception as e:
+            logger.error(f"Error al guardar operación pendiente para API Gateway: {str(e)}")
         
         # Crear mensaje con los datos de la operación
         message = {
