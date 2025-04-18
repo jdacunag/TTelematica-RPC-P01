@@ -11,7 +11,7 @@ project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '../'))
 sys.path.append(project_root)
 sys.path.append(os.path.abspath('../microservices/sum_service'))
 sys.path.append(os.path.abspath('../microservices/subtract_service'))
-sys.path.append(os.path.abspath('../microservices/multiply_service'))
+sys.path.append(os.path.abspath('../microservices/mult_service'))
 sys.path.append(os.path.abspath('../microservices/protobufs'))
 
 # Cargar variables de entorno
@@ -47,12 +47,12 @@ SERVICES = {
         'server_address': 'localhost:50052',  # Puerto diferente
         'service_id': 'subtract_service_01'
     },
-    'multiply': {
+    'mult': {
         'stub_module': 'operation_pb2_grpc',
-        'stub_class': 'MultiplyServiceStub',
-        'path': os.path.abspath('../microservices/multiply_service'),
+        'stub_class': 'MultServiceStub',
+        'path': os.path.abspath('../microservices/mult_service'),
         'server_address': 'localhost:50053',  # Puerto diferente
-        'service_id': 'multiply_service_01'
+        'service_id': 'mult_service_01'
     }
     # Aquí se pueden añadir más servicios en el futuro
 }
