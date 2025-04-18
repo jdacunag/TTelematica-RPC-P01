@@ -156,13 +156,13 @@ class SumService(operation_pb2_grpc.SumServiceServicer):
                     
                     # Agregar resultado si está disponible
                     if "result" in operation:
-                        result = operation_pb2.SumResponse()  # Actualizado a SumResponse
+                        result = operation_pb2.OperationResult()
                         result.result = operation["result"]["result"]
                         result.success = operation["result"]["success"] 
                         result.error_message = operation["result"]["error_message"]
                         result.operation_id = operation["result"]["operation_id"]
                         response.result.CopyFrom(result)
-                    
+                                            
                     return response
                 except Exception as e:
                     print(f"Error al cargar operación desde archivo: {str(e)}")

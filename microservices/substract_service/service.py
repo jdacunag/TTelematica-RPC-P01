@@ -166,7 +166,7 @@ class SubtractService(operation_pb2_grpc.SubtractServiceServicer):
                     
                     # Agregar resultado si está disponible
                     if "result" in operation:
-                        result = operation_pb2.SumResponse()
+                        result = operation_pb2.OperationResult()
                         result.result = operation["result"]["result"]
                         result.success = operation["result"]["success"] 
                         result.error_message = operation["result"]["error_message"]
