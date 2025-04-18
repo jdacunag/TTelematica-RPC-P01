@@ -269,3 +269,135 @@ class SubtractService(object):
             operation__pb2.AsyncOperationResponse.FromString,
             options, channel_credentials,
             insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
+
+class MultServiceStub(object):
+    """Servicio específico para operaciones de multiplicación
+    """
+
+    def __init__(self, channel):
+        """Constructor.
+
+        Args:
+            channel: A grpc.Channel.
+        """
+        self.Mult = channel.unary_unary(
+                '/operations.MultService/Mult',
+                request_serializer=operation__pb2.MultRequest.SerializeToString,
+                response_deserializer=operation__pb2.MultResponse.FromString,
+                )
+        self.CheckStatus = channel.unary_unary(
+                '/operations.MultService/CheckStatus',
+                request_serializer=operation__pb2.StatusRequest.SerializeToString,
+                response_deserializer=operation__pb2.StatusResponse.FromString,
+                )
+        self.GetAsyncOperationStatus = channel.unary_unary(
+                '/operations.MultService/GetAsyncOperationStatus',
+                request_serializer=operation__pb2.AsyncOperationRequest.SerializeToString,
+                response_deserializer=operation__pb2.AsyncOperationResponse.FromString,
+                )
+
+
+class MultServiceServicer(object):
+    """Servicio específico para operaciones de multiplicación
+    """
+
+    def Mult(self, request, context):
+        """Operación síncrona de multiplicación
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def CheckStatus(self, request, context):
+        """Verificación de estado del servicio
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GetAsyncOperationStatus(self, request, context):
+        """Consulta de estado de una operación asíncrona
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+
+def add_MultServiceServicer_to_server(servicer, server):
+    rpc_method_handlers = {
+            'Mult': grpc.unary_unary_rpc_method_handler(
+                    servicer.Mult,
+                    request_deserializer=operation__pb2.MultRequest.FromString,
+                    response_serializer=operation__pb2.MultResponse.SerializeToString,
+            ),
+            'CheckStatus': grpc.unary_unary_rpc_method_handler(
+                    servicer.CheckStatus,
+                    request_deserializer=operation__pb2.StatusRequest.FromString,
+                    response_serializer=operation__pb2.StatusResponse.SerializeToString,
+            ),
+            'GetAsyncOperationStatus': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetAsyncOperationStatus,
+                    request_deserializer=operation__pb2.AsyncOperationRequest.FromString,
+                    response_serializer=operation__pb2.AsyncOperationResponse.SerializeToString,
+            ),
+    }
+    generic_handler = grpc.method_handlers_generic_handler(
+            'operations.MultService', rpc_method_handlers)
+    server.add_generic_rpc_handlers((generic_handler,))
+
+
+ # This class is part of an EXPERIMENTAL API.
+class MultService(object):
+    """Servicio específico para operaciones de multiplicación
+    """
+
+    @staticmethod
+    def Mult(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(request, target, '/operations.MultService/Mult',
+            operation__pb2.MultRequest.SerializeToString,
+            operation__pb2.MultResponse.FromString,
+            options, channel_credentials,
+            insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
+
+    @staticmethod
+    def CheckStatus(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(request, target, '/operations.MultService/CheckStatus',
+            operation__pb2.StatusRequest.SerializeToString,
+            operation__pb2.StatusResponse.FromString,
+            options, channel_credentials,
+            insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
+
+    @staticmethod
+    def GetAsyncOperationStatus(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(request, target, '/operations.MultService/GetAsyncOperationStatus',
+            operation__pb2.AsyncOperationRequest.SerializeToString,
+            operation__pb2.AsyncOperationResponse.FromString,
+            options, channel_credentials,
+            insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
