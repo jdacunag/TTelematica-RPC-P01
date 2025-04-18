@@ -6,17 +6,22 @@ Proporciona funcionalidades para establecer, mantener y cerrar conexiones.
 import pika
 import time
 import logging
+import os
+from dotenv import load_dotenv
+
+# Cargar variables de entorno
+load_dotenv()
 
 # Configuración de logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Configuración de RabbitMQ (podría moverse a un archivo de configuración)
-RABBITMQ_HOST = 'localhost'
-RABBITMQ_PORT = 5672
-RABBITMQ_USER = 'user'
-RABBITMQ_PASS = 'password'
-RABBITMQ_VHOST = '/'
+# Configuración de RabbitMQ (desde variables de entorno)
+RABBITMQ_HOST = os.environ.get('RABBITMQ_HOST', 'localhost')
+RABBITMQ_PORT = int(os.environ.get('RABBITMQ_PORT', 5672))
+RABBITMQ_USER = os.environ.get('RABBITMQ_USER', 'guest')
+RABBITMQ_PASS = os.environ.get('RABBITMQ_PASS', 'guest')
+RABBITMQ_VHOST = os.environ.get('RABBITMQ_VHOST', '/')
 
 class RabbitMQConnection:
     """Clase para gestionar la conexión con RabbitMQ"""
@@ -30,14 +35,13 @@ class RabbitMQConnection:
     def connect(self):
         """
         Establece conexión con RabbitMQ.
-        Intenta primero con las credenciales configuradas y, si falla,
-        prueba con las credenciales por defecto.
+        Usa las credenciales de las variables de entorno.
         
         Returns:
             bool: True si la conexión fue exitosa, False en caso contrario
         """
         try:
-            # Usar credenciales configuradas
+            # Usar credenciales configuradas desde variables de entorno
             logger.info(f"Intentando conexión a RabbitMQ con credenciales configuradas: {RABBITMQ_USER}...")
             credentials = pika.PlainCredentials(RABBITMQ_USER, RABBITMQ_PASS)
             
@@ -60,28 +64,7 @@ class RabbitMQConnection:
             
         except pika.exceptions.AMQPConnectionError as e:
             logger.error(f"Error de conexión AMQP: {e}")
-            logger.info("Intentando con credenciales alternativas (guest/guest)...")
-            
-            try:
-                # Intentar con credenciales por defecto de RabbitMQ
-                credentials = pika.PlainCredentials('guest', 'guest')
-                params = pika.ConnectionParameters(
-                    host=RABBITMQ_HOST,
-                    port=RABBITMQ_PORT,
-                    virtual_host=RABBITMQ_VHOST,
-                    credentials=credentials,
-                    heartbeat=600,
-                    blocked_connection_timeout=300
-                )
-                
-                self.connection = pika.BlockingConnection(params)
-                self.channel = self.connection.channel()
-                
-                logger.info("Conexión establecida con RabbitMQ usando credenciales por defecto")
-                self._connected = True
-            except Exception as e2:
-                logger.error(f"Error al conectar con credenciales alternativas: {e2}")
-                self._connected = False
+            self._connected = False
         except Exception as e:
             logger.error(f"Error al conectar con RabbitMQ: {e}")
             self._connected = False
