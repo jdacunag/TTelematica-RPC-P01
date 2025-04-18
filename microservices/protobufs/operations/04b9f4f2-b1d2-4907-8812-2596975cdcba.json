@@ -1,0 +1,1 @@
+{"status": 3, "message": "Operaci\u00f3n de suma completada", "result": {"result": 19, "success": true, "error_message": "", "operation_id": "04b9f4f2-b1d2-4907-8812-2596975cdcba"}, "timestamp": 1745006976.871588, "service": "sum", "a": 7, "b": 12, "operation_id": "04b9f4f2-b1d2-4907-8812-2596975cdcba", "_id": "6802b181ca7baa10f06f23ee"}

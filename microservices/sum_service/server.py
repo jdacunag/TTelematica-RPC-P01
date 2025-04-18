@@ -6,18 +6,56 @@ import sys
 import threading
 import os
 import json
-import operation_pb2
-import operation_pb2_grpc
-from service import SumService, process_async_operation, async_operations
-
-import sys
-import os
 
 # Añadir directorio raíz al path para importar el paquete common
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../'))
 sys.path.append(project_root)
 
+# Cargar variables de entorno
+from dotenv import load_dotenv
+load_dotenv()  # Carga variables desde .env
+
+# Importar los módulos generados por protobuf
+import operation_pb2
+import operation_pb2_grpc
+
+# Importar el servicio - Importante: importar estas clases después de operation_pb2
+from service import SumService, process_async_operation
+
+# Imprimir la URI para depuración (oculta la contraseña para seguridad)
+mongo_uri = os.environ.get('MONGO_URI', '')
+if mongo_uri:
+    parts = mongo_uri.split('@')
+    if len(parts) > 1:
+        auth_part = parts[0].split('://')
+        if len(auth_part) > 1:
+            credentials = auth_part[1].split(':')
+            if len(credentials) > 1:
+                # Ocultar contraseña
+                hidden_uri = f"{auth_part[0]}://{credentials[0]}:****@{parts[1]}"
+                print(f"MongoDB URI cargada: {hidden_uri}")
+            else:
+                print(f"MongoDB URI cargada con formato incorrecto: {mongo_uri}")
+        else:
+            print(f"MongoDB URI cargada con formato incorrecto: {mongo_uri}")
+    else:
+        print(f"MongoDB URI cargada con formato incorrecto: {mongo_uri}")
+else:
+    print("ADVERTENCIA: No se encontró MONGO_URI en las variables de entorno")
+
+# Importar después de cargar variables de entorno
 from common.mom import MOMHandler, handle_failover
+from common.db.operations_db import OperationsDB
+
+# Inicializar la conexión a MongoDB Atlas
+db = OperationsDB.get_instance()
+
+# Verificar conexión a MongoDB Atlas
+if db.is_connected():
+    print("Conexión exitosa a MongoDB Atlas")
+else:
+    print("ADVERTENCIA: No se pudo conectar a MongoDB Atlas")
+
 # Puerto por defecto para el servidor
 DEFAULT_PORT = 50051
 
@@ -27,10 +65,10 @@ server_active = True
 # Función para procesar manualmente los archivos pendientes
 def process_files_immediately():
     """
-    Procesa directamente todas las operaciones pendientes en archivos
+    Procesa directamente todas las operaciones pendientes en MongoDB
     """
-    print("Solicitando procesamiento de archivos pendientes...")
-    # Usar el manejador MOM para procesar archivos
+    print("Solicitando procesamiento de operaciones pendientes...")
+    # Usar el manejador MOM para procesar operaciones
     import service
     mom_handler = MOMHandler(service_module=service)
     count = mom_handler.recovery.process_files_immediately()

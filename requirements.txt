@@ -1,0 +1,8 @@
+flask==2.3.3
+grpcio==1.60.1
+grpcio-tools==1.60.1
+requests==2.31.0
+pika==1.3.2
+pymongo==4.6.2
+dnspython==2.6.1
+python-dotenv==1.0.1

@@ -7,19 +7,32 @@ import os
 import time
 import importlib
 
-# Asegurarnos de que podemos importar los módulos del servicio
+# Configurar rutas para importaciones
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '../'))
+sys.path.append(project_root)
 sys.path.append(os.path.abspath('../microservices/sum_service'))
 sys.path.append(os.path.abspath('../microservices/subtract_service'))
+sys.path.append(os.path.abspath('../microservices/protobufs'))
+
+# Cargar variables de entorno
+from dotenv import load_dotenv
+load_dotenv()
+
+# Importar la clase OperationsDB
+from common.db.operations_db import OperationsDB
+
+# IMPORTANTE: Crear la instancia de Flask ANTES de definir rutas
+app = Flask(__name__)
+
+# Inicializar la conexión a MongoDB Atlas
+db = OperationsDB.get_instance()
 
 # Importar los módulos generados por protobuf
 import operation_pb2
 import operation_pb2_grpc
 
-app = Flask(__name__)
-
-# Directorio donde se almacenan las operaciones persistentes
+# Directorio donde se almacenan las operaciones persistentes (para compatibilidad)
 OPERATIONS_DIR = os.path.abspath('../microservices/protobufs/operations')
-sys.path.append(os.path.abspath('../microservices/protobufs'))
 
 # Configuración para múltiples servicios
 SERVICES = {
@@ -65,19 +78,25 @@ def get_service_stub(service_name):
     channel = grpc.insecure_channel(service_config['server_address'])
     return stub_class(channel)
 
-def get_operation_from_file(operation_id):
+def get_operation_from_db(operation_id):
     """
-    Lee una operación directamente desde el archivo de persistencia
+    Lee una operación desde MongoDB Atlas
     """
-    file_path = os.path.join(OPERATIONS_DIR, f"{operation_id}.json")
-    if os.path.exists(file_path):
-        try:
-            with open(file_path, 'r') as f:
-                operation = json.load(f)
-            return operation
-        except Exception as e:
-            return None
-    return None
+    return db.get_operation(operation_id)
+
+def get_status_text(status_code):
+    """
+    Convierte códigos de estado numéricos a texto
+    """
+    status_map = {
+        0: 'UNKNOWN',
+        1: 'PENDING',
+        2: 'PROCESSING',
+        3: 'COMPLETED',
+        4: 'FAILED',
+        5: 'CANCELLED'
+    }
+    return status_map.get(status_code, 'UNKNOWN')
 
 @app.route('/health', methods=['GET'])
 def health_check():
@@ -86,7 +105,8 @@ def health_check():
     """
     return jsonify({
         'status': 'UP',
-        'message': 'API Gateway funcionando correctamente'
+        'message': 'API Gateway funcionando correctamente',
+        'database': 'MongoDB Atlas' if db.is_connected() else 'Sin conexión a MongoDB'
     })
 
 @app.route('/service/status', methods=['GET'])
@@ -207,36 +227,6 @@ def sum_operation():
         except Exception as status_error:
             print(f"Error al verificar estado después de suma: {str(status_error)}")
         
-        # IMPORTANTE: Si la operación fue exitosa, guardarla explícitamente en el filesystem
-        if response.success:
-            try:
-                # Crear directorio si no existe
-                if not os.path.exists(OPERATIONS_DIR):
-                    os.makedirs(OPERATIONS_DIR)
-                
-                # Crear datos de la operación
-                operation_data = {
-                    "status": 3,  # COMPLETED
-                    "message": "Operación completada",
-                    "result": {
-                        "result": response.result,
-                        "success": response.success,
-                        "error_message": response.error_message if hasattr(response, 'error_message') else "",
-                        "operation_id": operation_id
-                    },
-                    "timestamp": time.time(),
-                    "service": "sum"  # Identificar el servicio que realizó la operación
-                }
-                
-                # Guardar en archivo
-                file_path = os.path.join(OPERATIONS_DIR, f"{operation_id}.json")
-                with open(file_path, 'w') as f:
-                    json.dump(operation_data, f)
-                
-                print(f"Operación exitosa {operation_id} guardada en {file_path}")
-            except Exception as save_error:
-                print(f"Error al guardar operación exitosa: {str(save_error)}")
-        
         # Verificar si fue exitoso o encolado
         if response.success:
             return jsonify({
@@ -258,28 +248,30 @@ def sum_operation():
     except grpc.RpcError as e:
         # Manejar caso de servicio no disponible
         if e.code() == grpc.StatusCode.UNAVAILABLE:
-            # Guardar la operación directamente en un archivo si el servicio no está disponible
-            operation_dir = OPERATIONS_DIR
-            if not os.path.exists(operation_dir):
-                os.makedirs(operation_dir)
-            
-            file_path = os.path.join(operation_dir, f"{operation_id}.json")
+            # Guardar la operación en MongoDB Atlas
             operation_data = {
                 "status": 1,  # PENDING
                 "message": "Operación en cola (API Gateway)",
-                "timestamp": request.json.get("timestamp", time.time()),
+                "timestamp": time.time(),
                 "a": a_value,
                 "b": b_value,
-                "service": "sum"  # Identificar el servicio que debería procesar la operación
+                "service": "sum",
+                "operation_id": operation_id
             }
             
+            # Guardar en MongoDB Atlas
+            db.save_operation(operation_id, operation_data)
+            
+            # Mantener compatibilidad con archivos
             try:
+                if not os.path.exists(OPERATIONS_DIR):
+                    os.makedirs(OPERATIONS_DIR)
+                
+                file_path = os.path.join(OPERATIONS_DIR, f"{operation_id}.json")
                 with open(file_path, 'w') as f:
                     json.dump(operation_data, f)
-                
-                print(f"Operación {operation_id} guardada en disco por API Gateway")
             except Exception as file_error:
-                print(f"Error al guardar operación: {str(file_error)}")
+                print(f"Error al guardar operación en archivo: {str(file_error)}")
             
             return jsonify({
                 'success': False,
@@ -293,6 +285,12 @@ def sum_operation():
         return jsonify({
             'error': f'Error RPC: {e.details()}',
             'code': str(e.code())
+        }), 500
+    
+    except Exception as e:
+        # Manejar otros errores
+        return jsonify({
+            'error': f'Error general: {str(e)}'
         }), 500
 
 @app.route('/subtract', methods=['POST'])
@@ -352,36 +350,6 @@ def subtract_operation():
         except Exception as status_error:
             print(f"Error al verificar estado después de resta: {str(status_error)}")
         
-        # IMPORTANTE: Si la operación fue exitosa, guardarla explícitamente en el filesystem
-        if response.success:
-            try:
-                # Crear directorio si no existe
-                if not os.path.exists(OPERATIONS_DIR):
-                    os.makedirs(OPERATIONS_DIR)
-                
-                # Crear datos de la operación
-                operation_data = {
-                    "status": 3,  # COMPLETED
-                    "message": "Operación completada",
-                    "result": {
-                        "result": response.result,
-                        "success": response.success,
-                        "error_message": response.error_message if hasattr(response, 'error_message') else "",
-                        "operation_id": operation_id
-                    },
-                    "timestamp": time.time(),
-                    "service": "subtract"  # Identificar el servicio que realizó la operación
-                }
-                
-                # Guardar en archivo
-                file_path = os.path.join(OPERATIONS_DIR, f"{operation_id}.json")
-                with open(file_path, 'w') as f:
-                    json.dump(operation_data, f)
-                
-                print(f"Operación exitosa {operation_id} guardada en {file_path}")
-            except Exception as save_error:
-                print(f"Error al guardar operación exitosa: {str(save_error)}")
-        
         # Verificar si fue exitoso o encolado
         if response.success:
             return jsonify({
@@ -403,28 +371,30 @@ def subtract_operation():
     except grpc.RpcError as e:
         # Manejar caso de servicio no disponible
         if e.code() == grpc.StatusCode.UNAVAILABLE:
-            # Guardar la operación directamente en un archivo si el servicio no está disponible
-            operation_dir = OPERATIONS_DIR
-            if not os.path.exists(operation_dir):
-                os.makedirs(operation_dir)
-            
-            file_path = os.path.join(operation_dir, f"{operation_id}.json")
+            # Guardar la operación en MongoDB Atlas
             operation_data = {
                 "status": 1,  # PENDING
                 "message": "Operación en cola (API Gateway)",
-                "timestamp": request.json.get("timestamp", time.time()),
+                "timestamp": time.time(),
                 "a": a_value,
                 "b": b_value,
-                "service": "subtract"  # Identificar el servicio que debería procesar la operación
+                "service": "subtract",
+                "operation_id": operation_id
             }
             
+            # Guardar en MongoDB Atlas
+            db.save_operation(operation_id, operation_data)
+            
+            # Mantener compatibilidad con archivos
             try:
+                if not os.path.exists(OPERATIONS_DIR):
+                    os.makedirs(OPERATIONS_DIR)
+                
+                file_path = os.path.join(OPERATIONS_DIR, f"{operation_id}.json")
                 with open(file_path, 'w') as f:
                     json.dump(operation_data, f)
-                
-                print(f"Operación {operation_id} guardada en disco por API Gateway")
             except Exception as file_error:
-                print(f"Error al guardar operación: {str(file_error)}")
+                print(f"Error al guardar operación en archivo: {str(file_error)}")
             
             return jsonify({
                 'success': False,
@@ -439,6 +409,12 @@ def subtract_operation():
             'error': f'Error RPC: {e.details()}',
             'code': str(e.code())
         }), 500
+    
+    except Exception as e:
+        # Manejar otros errores
+        return jsonify({
+            'error': f'Error general: {str(e)}'
+        }), 500
 
 @app.route('/operation/status/<operation_id>', methods=['GET'])
 def operation_status(operation_id):
@@ -448,9 +424,9 @@ def operation_status(operation_id):
     # Intentar obtener información del servicio desde los parámetros
     service_name = request.args.get('service', None)
     
-    # Si no se especifica servicio, intentar detectarlo desde el archivo
+    # Si no se especifica servicio, intentar detectarlo desde MongoDB
     if not service_name:
-        operation = get_operation_from_file(operation_id)
+        operation = db.get_operation(operation_id)
         if operation:
             service_name = operation.get('service', 'sum')
         else:
@@ -484,7 +460,8 @@ def operation_status(operation_id):
                 'operation_id': operation_id,
                 'status': status_map.get(response.status, 'UNKNOWN'),
                 'message': response.message,
-                'service': service_name
+                'service': service_name,
+                'source': 'microservice'
             }
             
             # Agregar resultado si está disponible
@@ -497,10 +474,10 @@ def operation_status(operation_id):
             return jsonify(result)
         
         except grpc.RpcError as e:
-            # Si el servicio no está disponible, buscar en archivos
+            # Si el servicio no está disponible, buscar en MongoDB Atlas
             if e.code() == grpc.StatusCode.UNAVAILABLE:
-                # Buscar operación en archivos persistentes
-                operation = get_operation_from_file(operation_id)
+                # Buscar operación en MongoDB Atlas
+                operation = db.get_operation(operation_id)
                 
                 if operation:
                     # Mapear códigos de estado a texto
@@ -513,16 +490,16 @@ def operation_status(operation_id):
                         5: 'CANCELLED'
                     }
                     
-                    # Detectar servicio desde el archivo
-                    file_service = operation.get('service', service_name)
+                    # Detectar servicio desde MongoDB
+                    db_service = operation.get('service', service_name)
                     
                     # Crear respuesta
                     result = {
                         'operation_id': operation_id,
                         'status': status_map.get(operation.get('status', 0), 'UNKNOWN'),
                         'message': operation.get('message', 'Sin mensaje'),
-                        'source': 'file_storage',
-                        'service': file_service
+                        'source': 'mongodb_atlas',
+                        'service': db_service
                     }
                     
                     # Agregar resultado si está disponible
@@ -534,7 +511,47 @@ def operation_status(operation_id):
                     
                     return jsonify(result)
                 else:
-                    # Si no se encuentra en archivos, responder con estado desconocido
+                    # Si no se encuentra en MongoDB Atlas, buscar en archivos para compatibilidad
+                    file_path = os.path.join(OPERATIONS_DIR, f"{operation_id}.json")
+                    if os.path.exists(file_path):
+                        try:
+                            with open(file_path, 'r') as f:
+                                operation = json.load(f)
+                            
+                            # Guardar en MongoDB Atlas para futuros accesos
+                            db.save_operation(operation_id, operation)
+                            
+                            # Mapear códigos de estado a texto
+                            status_map = {
+                                0: 'UNKNOWN',
+                                1: 'PENDING',
+                                2: 'PROCESSING',
+                                3: 'COMPLETED',
+                                4: 'FAILED',
+                                5: 'CANCELLED'
+                            }
+                            
+                            # Crear respuesta
+                            result = {
+                                'operation_id': operation_id,
+                                'status': status_map.get(operation.get('status', 0), 'UNKNOWN'),
+                                'message': operation.get('message', 'Sin mensaje'),
+                                'source': 'file_storage',
+                                'service': operation.get('service', 'unknown')
+                            }
+                            
+                            # Agregar resultado si está disponible
+                            if 'result' in operation and operation.get('status') == 3:  # COMPLETED
+                                result['result'] = {
+                                    'value': operation['result'].get('result', 0),
+                                    'success': operation['result'].get('success', False)
+                                }
+                            
+                            return jsonify(result)
+                        except Exception as e:
+                            print(f"Error al leer operación desde archivo: {str(e)}")
+                    
+                    # Si no se encuentra en ninguna parte
                     return jsonify({
                         'operation_id': operation_id,
                         'status': 'UNKNOWN',
@@ -547,7 +564,7 @@ def operation_status(operation_id):
                 raise e
     
     except Exception as e:
-    # Manejar error general
+        # Manejar error general
         error_code = 'UNKNOWN'
         if hasattr(e, 'code'):
             error_code = str(e.code())
@@ -561,91 +578,75 @@ def operation_status(operation_id):
 @app.route('/operations', methods=['GET'])
 def list_operations():
     """
-    Endpoint para listar todas las operaciones disponibles en orden ascendente por tiempo
-    (las más antiguas primero, las más recientes al final)
+    Endpoint para listar todas las operaciones disponibles
     """
     try:
         # Filtrar por servicio si se especifica
         service_filter = request.args.get('service')
         
-        # Debugging - Listar información del directorio
-        print(f"\n--- Información de depuración ---")
-        print(f"Directorio de operaciones: {OPERATIONS_DIR}")
+        # Parámetros de paginación
+        page = int(request.args.get('page', 1))
+        limit = int(request.args.get('limit', 100))
+        skip = (page - 1) * limit
         
-        if not os.path.exists(OPERATIONS_DIR):
-            print(f"¡ADVERTENCIA! El directorio no existe, creándolo...")
-            os.makedirs(OPERATIONS_DIR)
+        # Obtener operaciones desde MongoDB Atlas
+        operations = db.list_operations(
+            service=service_filter,
+            limit=limit,
+            skip=skip,
+            sort_by='timestamp',
+            sort_dir=-1  # Ordenar por tiempo descendente (más recientes primero)
+        )
         
-        # Obtener lista de archivos explícitamente
-        all_files = os.listdir(OPERATIONS_DIR)
-        json_files = [f for f in all_files if f.endswith('.json')]
+        # Obtener conteo total
+        total_count = db.count_operations(service=service_filter)
         
-        print(f"Total de archivos en el directorio: {len(all_files)}")
-        print(f"Archivos JSON en el directorio: {len(json_files)}")
+        # Mapear códigos de estado a texto
+        status_map = {
+            0: 'UNKNOWN',
+            1: 'PENDING',
+            2: 'PROCESSING',
+            3: 'COMPLETED',
+            4: 'FAILED',
+            5: 'CANCELLED'
+        }
         
-        # Si llegamos aquí, usamos el método de archivos
-        operations = []
-        
-        # Listar archivos JSON - Leer directamente del directorio
-        operation_files = [os.path.join(OPERATIONS_DIR, f) for f in json_files]
-        
-        print(f"Leyendo {len(operation_files)} archivos de operaciones...")
-        
-        # Cargar cada operación
-        for file_path in operation_files:
-            try:
-                operation_id = os.path.basename(file_path)[:-5]  # Quitar extensión .json
-                
-                # Leer archivo
-                with open(file_path, 'r') as f:
-                    operation_data = json.load(f)
-                
-                # Si hay filtro de servicio, verificar si coincide
-                if service_filter and operation_data.get('service') != service_filter:
-                    continue
-                
-                # Mapear códigos de estado a texto
-                status_map = {
-                    0: 'UNKNOWN',
-                    1: 'PENDING',
-                    2: 'PROCESSING',
-                    3: 'COMPLETED',
-                    4: 'FAILED',
-                    5: 'CANCELLED'
-                }
-                
-                # Obtener timestamp o usar 0 si no existe
-                timestamp = operation_data.get('timestamp', 0)
-                
-                # Agregar a lista de operaciones con timestamp
-                operations.append({
-                    'operation_id': operation_id,
-                    'status': status_map.get(operation_data.get('status', 0), 'UNKNOWN'),
-                    'message': operation_data.get('message', 'Sin mensaje'),
-                    'timestamp': timestamp,
-                    'service': operation_data.get('service', 'unknown')
-                })
-            except Exception as e:
-                print(f"Error al cargar operación {file_path}: {str(e)}")
-        
-        # Ordenar las operaciones por timestamp en orden ascendente (más antiguas primero)
-        operations.sort(key=lambda op: op.get('timestamp', 0), reverse=False)
-        
-        # Crear lista para presentación (sin el timestamp)
+        # Crear lista para presentación
         presentation_operations = []
-        for i, op in enumerate(operations):
+        for op in operations:
+            # Crear objeto de presentación con datos principales
             presentation_op = {
                 'operation_id': op['operation_id'],
-                'status': op['status'],
-                'message': op['message'],
-                'service': op['service']
+                'status': status_map.get(op.get('status', 0), 'UNKNOWN'),
+                'message': op.get('message', 'Sin mensaje'),
+                'service': op.get('service', 'unknown')
             }
+            
+            # Añadir datos adicionales si están disponibles
+            if 'a' in op and 'b' in op:
+                presentation_op['operands'] = {
+                    'a': op['a'],
+                    'b': op['b']
+                }
+            
+            # Añadir resultado si está disponible
+            if 'result' in op and op.get('status') == 3:  # COMPLETED
+                presentation_op['result'] = op['result'].get('result', 0)
+            
+            # Añadir timestamp si está disponible (convertido a formato legible)
+            if 'timestamp' in op:
+                from datetime import datetime
+                presentation_op['timestamp'] = datetime.fromtimestamp(op['timestamp']).strftime('%Y-%m-%d %H:%M:%S')
+            
             presentation_operations.append(presentation_op)
         
         return jsonify({
             'count': len(presentation_operations),
+            'total': total_count,
+            'page': page,
+            'limit': limit,
             'operations': presentation_operations,
-            'source': 'files',
+            'source': 'mongodb_atlas',
             'service_filter': service_filter
         })
     
@@ -656,7 +657,13 @@ def list_operations():
         }), 500
 
 if __name__ == '__main__':
-    # Verificar directorio de operaciones
+    # Verificar conexión a MongoDB Atlas
+    if db.is_connected():
+        print("Conectado a MongoDB Atlas exitosamente")
+    else:
+        print("ADVERTENCIA: No hay conexión a MongoDB Atlas")
+    
+    # Verificar directorio de operaciones (para compatibilidad)
     if not os.path.exists(OPERATIONS_DIR):
         try:
             os.makedirs(OPERATIONS_DIR)
@@ -664,4 +671,5 @@ if __name__ == '__main__':
         except Exception as e:
             print(f"Error al crear directorio de operaciones: {str(e)}")
     
+    # Iniciar servidor Flask
     app.run(host='0.0.0.0', port=5000, debug=True)
