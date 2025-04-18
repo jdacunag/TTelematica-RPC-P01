@@ -5,9 +5,10 @@ import json
 import sys
 import os
 import time
+import importlib
 
 # Asegurarnos de que podemos importar los módulos del servicio
-sys.path.append(os.path.abspath('../microservices/protobufs/math_service'))
+sys.path.append(os.path.abspath('../microservices/sum_service'))
 
 # Importar los módulos generados por protobuf
 import operation_pb2
@@ -19,14 +20,51 @@ app = Flask(__name__)
 GRPC_SERVER_ADDRESS = 'localhost:50051'
 
 # Directorio donde se almacenan las operaciones persistentes
-OPERATIONS_DIR = os.path.abspath('../microservices/protobufs/math_service/operations')
+OPERATIONS_DIR = os.path.abspath('../microservices/protobufs/operations')
+
+# Configuración para múltiples servicios
+SERVICES = {
+    'sum': {
+        'stub_module': 'operation_pb2_grpc',
+        'stub_class': 'SumServiceStub',
+        'path': os.path.abspath('../microservices/sum_service'),
+        'server_address': 'localhost:50051',
+        'service_id': 'sum_service_01'
+    }
+    # Aquí se pueden añadir más servicios en el futuro
+}
+
+def get_service_stub(service_name):
+    """
+    Obtiene el stub para un servicio específico
+    """
+    if service_name not in SERVICES:
+        raise ValueError(f"Servicio desconocido: {service_name}")
+    
+    service_config = SERVICES[service_name]
+    
+    # Asegurar que el path del servicio está en sys.path
+    if service_config['path'] not in sys.path:
+        sys.path.append(service_config['path'])
+    
+    # Importar el módulo stub
+    try:
+        module = importlib.import_module(service_config['stub_module'])
+        stub_class = getattr(module, service_config['stub_class'])
+    except (ImportError, AttributeError) as e:
+        print(f"Error al importar el stub: {e}")
+        raise ValueError(f"Error al cargar el servicio {service_name}: {e}")
+    
+    # Crear y retornar el stub
+    channel = grpc.insecure_channel(service_config['server_address'])
+    return stub_class(channel)
 
 def get_grpc_stub():
     """
-    Crea y retorna un stub gRPC para el servicio MathService
+    Crea y retorna un stub gRPC para el servicio SumService (compatibilidad)
     """
     channel = grpc.insecure_channel(GRPC_SERVER_ADDRESS)
-    return operation_pb2_grpc.MathServiceStub(channel)
+    return operation_pb2_grpc.SumServiceStub(channel)
 
 def get_operation_from_file(operation_id):
     """
@@ -55,13 +93,24 @@ def health_check():
 @app.route('/service/status', methods=['GET'])
 def service_status():
     """
-    Endpoint para verificar el estado del servicio matemático
+    Endpoint para verificar el estado del servicio
     """
-    service_id = request.args.get('service_id', 'math_service_01')
+    service_name = request.args.get('service', 'sum')  # Por defecto, consultar el servicio de suma
     
     try:
-        # Obtener stub gRPC
-        stub = get_grpc_stub()
+        # Verificar si el servicio existe
+        if service_name not in SERVICES:
+            return jsonify({
+                'status': 'UNKNOWN',
+                'message': f'Servicio desconocido: {service_name}'
+            }), 404
+        
+        # Obtener la configuración del servicio
+        service_config = SERVICES[service_name]
+        service_id = service_config.get('service_id', f'{service_name}_service_01')
+        
+        # Obtener stub para el servicio
+        stub = get_service_stub(service_name)
         
         # Crear solicitud de estado
         status_request = operation_pb2.StatusRequest(service_id=service_id)
@@ -81,7 +130,8 @@ def service_status():
             'status': status_map.get(response.status, 'UNKNOWN'),
             'message': response.message,
             'uptime': response.uptime,
-            'service_id': service_id
+            'service_id': service_id,
+            'service_name': service_name
         })
     
     except grpc.RpcError as e:
@@ -89,10 +139,19 @@ def service_status():
         return jsonify({
             'status': 'DOWN',
             'message': f'Servicio no disponible: {e.details()}',
-            'code': str(e.code())
+            'code': str(e.code()),
+            'service_name': service_name
         }), 503
+    
+    except Exception as e:
+        # Manejar otros errores
+        return jsonify({
+            'status': 'ERROR',
+            'message': f'Error al consultar estado: {str(e)}',
+            'service_name': service_name
+        }), 500
 
-@app.route('/math/sum', methods=['POST'])
+@app.route('/sum', methods=['POST'])
 def sum_operation():
     """
     Endpoint para realizar una suma
@@ -127,11 +186,11 @@ def sum_operation():
     operation_id = data.get('operation_id', str(uuid.uuid4()))
     
     try:
-        # Obtener stub gRPC
-        stub = get_grpc_stub()
+        # Obtener stub para el servicio de suma
+        stub = get_service_stub('sum')
         
         # Crear solicitud gRPC
-        request_proto = operation_pb2.OperationRequest(
+        request_proto = operation_pb2.SumRequest(
             a=a_value,
             b=b_value,
             operation_id=operation_id
@@ -166,7 +225,8 @@ def sum_operation():
                         "error_message": response.error_message if hasattr(response, 'error_message') else "",
                         "operation_id": operation_id
                     },
-                    "timestamp": time.time()
+                    "timestamp": time.time(),
+                    "service": "sum"  # Identificar el servicio que realizó la operación
                 }
                 
                 # Guardar en archivo
@@ -183,7 +243,8 @@ def sum_operation():
             return jsonify({
                 'result': response.result,
                 'success': response.success,
-                'operation_id': response.operation_id
+                'operation_id': response.operation_id,
+                'service': 'sum'
             })
         else:
             # Si no fue exitoso, puede ser que se haya encolado
@@ -191,7 +252,8 @@ def sum_operation():
                 'success': False,
                 'message': response.error_message,
                 'operation_id': response.operation_id,
-                'status': 'QUEUED'
+                'status': 'QUEUED',
+                'service': 'sum'
             }), 202  # Respuesta 202 Accepted
     
     except grpc.RpcError as e:
@@ -206,9 +268,10 @@ def sum_operation():
             operation_data = {
                 "status": 1,  # PENDING
                 "message": "Operación en cola (API Gateway)",
-                "timestamp": request.json.get("timestamp", 0),
+                "timestamp": request.json.get("timestamp", time.time()),
                 "a": a_value,
-                "b": b_value
+                "b": b_value,
+                "service": "sum"  # Identificar el servicio que debería procesar la operación
             }
             
             try:
@@ -223,7 +286,8 @@ def sum_operation():
                 'success': False,
                 'message': 'Servicio temporalmente no disponible. La operación ha sido encolada.',
                 'operation_id': operation_id,
-                'status': 'QUEUED'
+                'status': 'QUEUED',
+                'service': 'sum'
             }), 202  # Respuesta 202 Accepted
         
         # Otros errores gRPC
@@ -232,15 +296,18 @@ def sum_operation():
             'code': str(e.code())
         }), 500
 
-@app.route('/math/operation/status/<operation_id>', methods=['GET'])
+@app.route('/operation/status/<operation_id>', methods=['GET'])
 def operation_status(operation_id):
     """
     Endpoint para consultar el estado de una operación
     """
+    # Intentar obtener información del servicio desde los parámetros
+    service_name = request.args.get('service', 'sum')  # Por defecto, servicio de suma
+    
     try:
         # Intentar obtener stub gRPC y consultar servicio
         try:
-            stub = get_grpc_stub()
+            stub = get_service_stub(service_name)
             
             # Crear solicitud gRPC
             request_proto = operation_pb2.AsyncOperationRequest(
@@ -264,7 +331,8 @@ def operation_status(operation_id):
             result = {
                 'operation_id': operation_id,
                 'status': status_map.get(response.status, 'UNKNOWN'),
-                'message': response.message
+                'message': response.message,
+                'service': service_name
             }
             
             # Agregar resultado si está disponible
@@ -293,12 +361,16 @@ def operation_status(operation_id):
                         5: 'CANCELLED'
                     }
                     
+                    # Detectar servicio desde el archivo
+                    file_service = operation.get('service', service_name)
+                    
                     # Crear respuesta
                     result = {
                         'operation_id': operation_id,
                         'status': status_map.get(operation.get('status', 0), 'UNKNOWN'),
                         'message': operation.get('message', 'Sin mensaje'),
-                        'source': 'file_storage'  # Indicar fuente de datos
+                        'source': 'file_storage',
+                        'service': file_service
                     }
                     
                     # Agregar resultado si está disponible
@@ -315,7 +387,8 @@ def operation_status(operation_id):
                         'operation_id': operation_id,
                         'status': 'UNKNOWN',
                         'message': f'Operación no encontrada: {operation_id}',
-                        'source': 'api_gateway'
+                        'source': 'api_gateway',
+                        'service': service_name
                     })
             else:
                 # Otros errores gRPC
@@ -329,7 +402,8 @@ def operation_status(operation_id):
         
         return jsonify({
             'error': f'Error al consultar estado: {str(e)}',
-            'code': error_code
+            'code': error_code,
+            'service': service_name
         }), 500
 
 @app.route('/operations', methods=['GET'])
@@ -339,6 +413,9 @@ def list_operations():
     (las más antiguas primero, las más recientes al final)
     """
     try:
+        # Filtrar por servicio si se especifica
+        service_filter = request.args.get('service')
+        
         # Debugging - Listar información del directorio
         print(f"\n--- Información de depuración ---")
         print(f"Directorio de operaciones: {OPERATIONS_DIR}")
@@ -371,6 +448,10 @@ def list_operations():
                 with open(file_path, 'r') as f:
                     operation_data = json.load(f)
                 
+                # Si hay filtro de servicio, verificar si coincide
+                if service_filter and operation_data.get('service') != service_filter:
+                    continue
+                
                 # Mapear códigos de estado a texto
                 status_map = {
                     0: 'UNKNOWN',
@@ -389,7 +470,8 @@ def list_operations():
                     'operation_id': operation_id,
                     'status': status_map.get(operation_data.get('status', 0), 'UNKNOWN'),
                     'message': operation_data.get('message', 'Sin mensaje'),
-                    'timestamp': timestamp
+                    'timestamp': timestamp,
+                    'service': operation_data.get('service', 'unknown')
                 })
             except Exception as e:
                 print(f"Error al cargar operación {file_path}: {str(e)}")
@@ -403,14 +485,16 @@ def list_operations():
             presentation_op = {
                 'operation_id': op['operation_id'],
                 'status': op['status'],
-                'message': op['message']
+                'message': op['message'],
+                'service': op['service']
             }
             presentation_operations.append(presentation_op)
         
         return jsonify({
             'count': len(presentation_operations),
             'operations': presentation_operations,
-            'source': 'files'
+            'source': 'files',
+            'service_filter': service_filter
         })
     
     except Exception as e:

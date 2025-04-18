@@ -8,7 +8,7 @@ import os
 import json
 import operation_pb2
 import operation_pb2_grpc
-from service import MathService, process_async_operation, async_operations
+from service import SumService, process_async_operation, async_operations
 
 # Importar el módulo MOM centralizado
 import sys
@@ -34,9 +34,9 @@ def process_files_immediately():
     count = mom_handler.recovery.process_files_immediately()
     print(f"Procesamiento completado. Se procesaron {count} operaciones pendientes.")
 
-class MathServiceWithFailover(MathService):
+class SumServiceWithFailover(SumService):
     """
-    Implementación de MathService con mecanismo de failover
+    Implementación de SumService con mecanismo de failover
     """
     def __init__(self):
         super().__init__()
@@ -60,7 +60,7 @@ class MathServiceWithFailover(MathService):
             context.set_code(grpc.StatusCode.UNAVAILABLE)
             context.set_details(f"Servicio no disponible: {message}")
             
-            return operation_pb2.OperationResponse(
+            return operation_pb2.SumResponse(
                 result=0,
                 success=False,
                 error_message=f"Operación encolada: {message}",
@@ -80,10 +80,10 @@ class MathServiceWithFailover(MathService):
         # Determinar el estado del servidor
         if server_active:
             status = operation_pb2.StatusResponse.ServiceStatus.RUNNING
-            message = "Servicio funcionando correctamente"
+            message = "Servicio de suma funcionando correctamente"
         else:
             status = operation_pb2.StatusResponse.ServiceStatus.DEGRADED
-            message = "Servicio en modo degradado, usando MOM para operaciones"
+            message = "Servicio de suma en modo degradado, usando MOM para operaciones"
         
         # Verificar si el ID de servicio coincide
         if request.service_id == self.service_id:
@@ -118,8 +118,8 @@ def serve():
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
     
     # Registrar servicio con failover
-    service = MathServiceWithFailover()
-    operation_pb2_grpc.add_MathServiceServicer_to_server(service, server)
+    service = SumServiceWithFailover()
+    operation_pb2_grpc.add_SumServiceServicer_to_server(service, server)
     
     # Configurar puerto
     server_address = f'[::]:{DEFAULT_PORT}'
@@ -127,7 +127,7 @@ def serve():
     
     # Iniciar servidor
     server.start()
-    print(f"Servidor MathService iniciado. Escuchando en {server_address}")
+    print(f"Servidor SumService iniciado. Escuchando en {server_address}")
     print("Estado inicial: ACTIVO")
     
     # Configurar handler para comandos de consola

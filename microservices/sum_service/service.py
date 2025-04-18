@@ -6,7 +6,7 @@ import operation_pb2
 import operation_pb2_grpc
 
 # Ruta para almacenar operaciones de forma persistente
-OPERATIONS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "operations")
+OPERATIONS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "protobufs", "operations")
 
 # Crear directorio si no existe
 if not os.path.exists(OPERATIONS_DIR):
@@ -47,11 +47,11 @@ def save_operation(operation_id, operation_data):
 # Cargar operaciones al inicio
 load_operations()
 
-class MathService(operation_pb2_grpc.MathServiceServicer):
+class SumService(operation_pb2_grpc.SumServiceServicer):
     def __init__(self):
         # Tiempo de inicio del servicio para calcular el uptime
         self.start_time = time.time()
-        self.service_id = "math_service_01"
+        self.service_id = "sum_service_01"  # ID actualizado
     
     def Sum(self, request, context):
         """
@@ -68,8 +68,8 @@ class MathService(operation_pb2_grpc.MathServiceServicer):
             # Realizar la operación de suma
             result = request.a + request.b
             
-            # Crear y retornar la respuesta
-            return operation_pb2.OperationResponse(
+            # Crear y retornar la respuesta con el tipo actualizado
+            return operation_pb2.SumResponse(
                 result=result,
                 success=True,
                 error_message="",
@@ -77,7 +77,7 @@ class MathService(operation_pb2_grpc.MathServiceServicer):
             )
         except Exception as e:
             # En caso de error, retornar respuesta con error
-            return operation_pb2.OperationResponse(
+            return operation_pb2.SumResponse(
                 result=0,
                 success=False,
                 error_message=str(e),
@@ -97,7 +97,7 @@ class MathService(operation_pb2_grpc.MathServiceServicer):
         if request.service_id == self.service_id:
             return operation_pb2.StatusResponse(
                 status=operation_pb2.StatusResponse.ServiceStatus.RUNNING,
-                message="Servicio funcionando correctamente",
+                message="Servicio de suma funcionando correctamente",  # Mensaje actualizado
                 uptime=uptime
             )
         else:
@@ -126,8 +126,8 @@ class MathService(operation_pb2_grpc.MathServiceServicer):
             
             # Agregar resultado si está disponible
             if "result" in operation:
-                # Crear un nuevo objeto OperationResponse
-                result_obj = operation_pb2.OperationResponse(
+                # Crear un nuevo objeto SumResponse (actualizado)
+                result_obj = operation_pb2.SumResponse(
                     result=operation["result"]["result"],
                     success=operation["result"]["success"],
                     error_message=operation["result"]["error_message"],
@@ -156,7 +156,7 @@ class MathService(operation_pb2_grpc.MathServiceServicer):
                     
                     # Agregar resultado si está disponible
                     if "result" in operation:
-                        result = operation_pb2.OperationResponse()
+                        result = operation_pb2.SumResponse()  # Actualizado a SumResponse
                         result.result = operation["result"]["result"]
                         result.success = operation["result"]["success"] 
                         result.error_message = operation["result"]["error_message"]
@@ -194,7 +194,7 @@ def process_async_operation(operation_id, a, b):
         # Actualizar estado a procesando
         op_data = {
             "status": operation_pb2.AsyncOperationResponse.OperationStatus.PROCESSING,
-            "message": "Procesando operación",
+            "message": "Procesando operación de suma",  # Mensaje actualizado
             "timestamp": time.time()  # Actualizar timestamp
         }
         async_operations[operation_id] = op_data
@@ -204,7 +204,7 @@ def process_async_operation(operation_id, a, b):
         result = a + b
         
         # Crear resultado y actualizar estado a completado
-        response = operation_pb2.OperationResponse(
+        response = operation_pb2.SumResponse(  # Actualizado a SumResponse
             result=result,
             success=True,
             error_message="",
@@ -221,7 +221,7 @@ def process_async_operation(operation_id, a, b):
         
         op_data = {
             "status": operation_pb2.AsyncOperationResponse.OperationStatus.COMPLETED,
-            "message": "Operación completada",
+            "message": "Operación de suma completada",  # Mensaje actualizado
             "result": result_dict,
             "timestamp": time.time()  # Asegurarse de tener un timestamp actualizado
         }
@@ -241,7 +241,7 @@ def process_async_operation(operation_id, a, b):
         
         op_data = {
             "status": operation_pb2.AsyncOperationResponse.OperationStatus.FAILED,
-            "message": f"Error al procesar: {str(e)}",
+            "message": f"Error al procesar suma: {str(e)}",  # Mensaje actualizado
             "result": result_dict,
             "timestamp": time.time()  # Añadir timestamp en error también
         }
