@@ -10,12 +10,14 @@ import operation_pb2
 import operation_pb2_grpc
 from service import SumService, process_async_operation, async_operations
 
-# Importar el módulo MOM centralizado
 import sys
-# Añadir directorio raíz al path para importar el paquete common
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../../')))
-from common.mom import MOMHandler, handle_failover
+import os
 
+# Añadir directorio raíz al path para importar el paquete common
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../'))
+sys.path.append(project_root)
+
+from common.mom import MOMHandler, handle_failover
 # Puerto por defecto para el servidor
 DEFAULT_PORT = 50051
 
