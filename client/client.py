@@ -7,18 +7,21 @@ import sys
 # URL base del API Gateway
 API_GATEWAY_URL = "http://localhost:5000"
 
-def check_service_status():
+def check_service_status(service="sum"):
     """
     Verifica el estado del servicio a través del API Gateway
+    
+    Args:
+        service: Nombre del servicio a verificar (sum o subtract)
     """
-    url = f"{API_GATEWAY_URL}/service/status"
+    url = f"{API_GATEWAY_URL}/service/status?service={service}"
     
     try:
         response = requests.get(url)
         
         if response.status_code == 200:
             data = response.json()
-            print("\nEstado del servicio:")
+            print(f"\nEstado del servicio '{service}':")
             print(f"Status: {data['status']}")
             print(f"Mensaje: {data['message']}")
             print(f"Tiempo activo: {data.get('uptime', 'N/A')} segundos")
@@ -37,7 +40,7 @@ def sum_operation(a, b):
     """
     Realiza una operación de suma a través del API Gateway
     """
-    # Ruta actualizada para coincidir con el API Gateway
+    # Ruta para el servicio de suma
     url = f"{API_GATEWAY_URL}/sum"
     
     # Generar ID único para la operación
@@ -53,6 +56,56 @@ def sum_operation(a, b):
     
     try:
         print(f"\nEnviando solicitud de suma: {a} + {b}")
+        response = requests.post(url, json=payload)
+        
+        if response.status_code in [200, 202]:
+            data = response.json()
+            
+            # Verificar si la operación fue exitosa o encolada
+            if response.status_code == 200 and data.get('success', False):
+                print("Operación completada con éxito:")
+                print(f"Resultado: {data['result']}")
+                print(f"ID de operación: {data['operation_id']}")
+            else:
+                print("Operación encolada o pendiente:")
+                print(f"Mensaje: {data.get('message', 'No hay mensaje')}")
+                print(f"ID de operación: {data.get('operation_id', 'Desconocido')}")
+                
+                # Si la operación está encolada, consultar periódicamente el estado
+                if data.get('status') == 'QUEUED':
+                    check_operation_status(data.get('operation_id'))
+            
+            return data
+        else:
+            print(f"Error al realizar la operación: {response.status_code}")
+            print(response.text)
+            return None
+    
+    except requests.RequestException as e:
+        print(f"Error de conexión: {str(e)}")
+        print("¿Está el API Gateway ejecutándose?")
+        return None
+
+def subtract_operation(a, b):
+    """
+    Realiza una operación de resta a través del API Gateway
+    """
+    # Ruta para el servicio de resta
+    url = f"{API_GATEWAY_URL}/subtract"
+    
+    # Generar ID único para la operación
+    operation_id = str(uuid.uuid4())
+    
+    # Crear payload
+    payload = {
+        "a": a,
+        "b": b,
+        "operation_id": operation_id,
+        "timestamp": time.time()
+    }
+    
+    try:
+        print(f"\nEnviando solicitud de resta: {a} - {b}")
         response = requests.post(url, json=payload)
         
         if response.status_code in [200, 202]:
@@ -107,8 +160,10 @@ def check_operation_status(operation_id):
                 status = data.get('status', 'UNKNOWN')
                 message = data.get('message', 'Sin mensaje')
                 source = data.get('source', 'server')
+                service = data.get('service', 'unknown')
                 
                 print(f"Estado = {status}, Mensaje: {message}")
+                print(f"Servicio: {service}")
                 if source != 'server':
                     print(f"Fuente de datos: {source}")
                 
@@ -142,11 +197,16 @@ def check_operation_status(operation_id):
     print("La operación podría seguir procesándose en segundo plano")
     print(f"Puede consultar su estado más tarde con el ID: {operation_id}")
 
-def list_operations():
+def list_operations(service=None):
     """
     Lista todas las operaciones disponibles
+    
+    Args:
+        service: Opcional. Si se proporciona, filtra por servicio (sum o subtract)
     """
     url = f"{API_GATEWAY_URL}/operations"
+    if service:
+        url += f"?service={service}"
     
     try:
         response = requests.get(url)
@@ -161,6 +221,7 @@ def list_operations():
                     print(f"{i}. ID: {op['operation_id']}")
                     print(f"   Estado: {op['status']}")
                     print(f"   Mensaje: {op['message']}")
+                    print(f"   Servicio: {op.get('service', 'desconocido')}")
                     print("---")
                 
                 print(f"Total: {data.get('count', len(operations))} operaciones")
@@ -188,14 +249,19 @@ def interactive_mode():
         print("\nOpciones:")
         print("1. Verificar estado del servicio")
         print("2. Realizar operación de suma")
-        print("3. Consultar estado de operación")
-        print("4. Listar todas las operaciones")
-        print("5. Salir")
+        print("3. Realizar operación de resta")
+        print("4. Consultar estado de operación")
+        print("5. Listar todas las operaciones")
+        print("6. Salir")
         
-        choice = input("\nSeleccione una opción (1-5): ")
+        choice = input("\nSeleccione una opción (1-6): ")
         
         if choice == '1':
-            check_service_status()
+            service = input("¿Qué servicio desea verificar? (sum/subtract): ").lower()
+            if service not in ['sum', 'subtract']:
+                print("Servicio no válido. Usando 'sum' por defecto.")
+                service = 'sum'
+            check_service_status(service)
         
         elif choice == '2':
             try:
@@ -206,16 +272,30 @@ def interactive_mode():
                 print("Error: Debe ingresar valores numéricos")
         
         elif choice == '3':
+            try:
+                a = int(input("Ingrese el primer número: "))
+                b = int(input("Ingrese el segundo número: "))
+                subtract_operation(a, b)
+            except ValueError:
+                print("Error: Debe ingresar valores numéricos")
+        
+        elif choice == '4':
             operation_id = input("Ingrese el ID de la operación: ")
             check_operation_status(operation_id)
         
-        elif choice == '4':
-            operations = list_operations()
+        elif choice == '5':
+            filter_option = input("¿Desea filtrar por servicio? (s/n): ").lower()
+            service_filter = None
+            if filter_option == 's':
+                service = input("Ingrese el nombre del servicio (sum/subtract): ").lower()
+                if service in ['sum', 'subtract']:
+                    service_filter = service
+            
+            operations = list_operations(service_filter)
             if operations and len(operations) > 0:
                 check_specific = input("\n¿Desea consultar el estado de alguna operación? (s/n): ")
                 if check_specific.lower() == 's':
                     try:
-                        # En el código del cliente, cuando se procesa la selección del usuario
                         index = int(input("Ingrese el número de la operación: ")) - 1  # Restar 1 para ajustar al índice basado en 0
                         if 0 <= index < len(operations):
                             check_operation_status(operations[index]['operation_id'])
@@ -224,7 +304,7 @@ def interactive_mode():
                     except ValueError:
                         print("Debe ingresar un número válido")
         
-        elif choice == '5':
+        elif choice == '6':
             print("Saliendo...")
             break
         
@@ -233,13 +313,25 @@ def interactive_mode():
 
 if __name__ == "__main__":
     # Si se proporcionan argumentos, ejecutar operación directamente
-    if len(sys.argv) > 2:
+    if len(sys.argv) > 3:
+        operation_type = sys.argv[1].lower()
         try:
-            a = int(sys.argv[1])
-            b = int(sys.argv[2])
-            sum_operation(a, b)
+            a = int(sys.argv[2])
+            b = int(sys.argv[3])
+            
+            if operation_type == "sum":
+                sum_operation(a, b)
+            elif operation_type == "subtract":
+                subtract_operation(a, b)
+            else:
+                print(f"Operación desconocida: {operation_type}")
+                print("Operaciones disponibles: sum, subtract")
         except ValueError:
             print("Error: Los argumentos deben ser numéricos")
+    elif len(sys.argv) > 1:
+        print("Uso: python client.py [operación] [a] [b]")
+        print("Ejemplo: python client.py sum 5 3")
+        print("Ejemplo: python client.py subtract 10 4")
     else:
         # Modo interactivo
         interactive_mode()

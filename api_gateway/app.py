@@ -9,6 +9,7 @@ import importlib
 
 # Asegurarnos de que podemos importar los módulos del servicio
 sys.path.append(os.path.abspath('../microservices/sum_service'))
+sys.path.append(os.path.abspath('../microservices/subtract_service'))
 
 # Importar los módulos generados por protobuf
 import operation_pb2
@@ -16,11 +17,9 @@ import operation_pb2_grpc
 
 app = Flask(__name__)
 
-# Configuración del servidor gRPC
-GRPC_SERVER_ADDRESS = 'localhost:50051'
-
 # Directorio donde se almacenan las operaciones persistentes
 OPERATIONS_DIR = os.path.abspath('../microservices/protobufs/operations')
+sys.path.append(os.path.abspath('../microservices/protobufs'))
 
 # Configuración para múltiples servicios
 SERVICES = {
@@ -30,6 +29,13 @@ SERVICES = {
         'path': os.path.abspath('../microservices/sum_service'),
         'server_address': 'localhost:50051',
         'service_id': 'sum_service_01'
+    },
+    'subtract': {
+        'stub_module': 'operation_pb2_grpc',
+        'stub_class': 'SubtractServiceStub',
+        'path': os.path.abspath('../microservices/subtract_service'),
+        'server_address': 'localhost:50052',  # Puerto diferente
+        'service_id': 'subtract_service_01'
     }
     # Aquí se pueden añadir más servicios en el futuro
 }
@@ -58,13 +64,6 @@ def get_service_stub(service_name):
     # Crear y retornar el stub
     channel = grpc.insecure_channel(service_config['server_address'])
     return stub_class(channel)
-
-def get_grpc_stub():
-    """
-    Crea y retorna un stub gRPC para el servicio SumService (compatibilidad)
-    """
-    channel = grpc.insecure_channel(GRPC_SERVER_ADDRESS)
-    return operation_pb2_grpc.SumServiceStub(channel)
 
 def get_operation_from_file(operation_id):
     """
@@ -296,13 +295,166 @@ def sum_operation():
             'code': str(e.code())
         }), 500
 
+@app.route('/subtract', methods=['POST'])
+def subtract_operation():
+    """
+    Endpoint para realizar una resta
+    """
+    # Obtener datos de la solicitud
+    data = request.json
+    
+    if not data:
+        return jsonify({
+            'error': 'Datos no proporcionados'
+        }), 400
+    
+    # Extraer y validar los operandos
+    a_value = data.get('a')
+    b_value = data.get('b')
+    
+    if a_value is None or b_value is None:
+        return jsonify({
+            'error': 'Se requieren los parámetros "a" y "b"'
+        }), 400
+    
+    # Verificar que los valores sean numéricos
+    try:
+        a_value = int(a_value)
+        b_value = int(b_value)
+    except ValueError:
+        return jsonify({
+            'error': 'Los valores de "a" y "b" deben ser numéricos'
+        }), 400
+    
+    # Obtener ID de operación si se proporciona, o generar uno nuevo
+    operation_id = data.get('operation_id', str(uuid.uuid4()))
+    
+    try:
+        # Obtener stub para el servicio de resta
+        stub = get_service_stub('subtract')
+        
+        # Crear solicitud gRPC
+        request_proto = operation_pb2.SubtractRequest(
+            a=a_value,
+            b=b_value,
+            operation_id=operation_id
+        )
+        
+        # Llamar al servicio gRPC
+        response = stub.Subtract(request_proto)
+        
+        # Solicitar estado para forzar persistencia
+        try:
+            status_request = operation_pb2.AsyncOperationRequest(
+                operation_id=operation_id
+            )
+            stub.GetAsyncOperationStatus(status_request)
+        except Exception as status_error:
+            print(f"Error al verificar estado después de resta: {str(status_error)}")
+        
+        # IMPORTANTE: Si la operación fue exitosa, guardarla explícitamente en el filesystem
+        if response.success:
+            try:
+                # Crear directorio si no existe
+                if not os.path.exists(OPERATIONS_DIR):
+                    os.makedirs(OPERATIONS_DIR)
+                
+                # Crear datos de la operación
+                operation_data = {
+                    "status": 3,  # COMPLETED
+                    "message": "Operación completada",
+                    "result": {
+                        "result": response.result,
+                        "success": response.success,
+                        "error_message": response.error_message if hasattr(response, 'error_message') else "",
+                        "operation_id": operation_id
+                    },
+                    "timestamp": time.time(),
+                    "service": "subtract"  # Identificar el servicio que realizó la operación
+                }
+                
+                # Guardar en archivo
+                file_path = os.path.join(OPERATIONS_DIR, f"{operation_id}.json")
+                with open(file_path, 'w') as f:
+                    json.dump(operation_data, f)
+                
+                print(f"Operación exitosa {operation_id} guardada en {file_path}")
+            except Exception as save_error:
+                print(f"Error al guardar operación exitosa: {str(save_error)}")
+        
+        # Verificar si fue exitoso o encolado
+        if response.success:
+            return jsonify({
+                'result': response.result,
+                'success': response.success,
+                'operation_id': response.operation_id,
+                'service': 'subtract'
+            })
+        else:
+            # Si no fue exitoso, puede ser que se haya encolado
+            return jsonify({
+                'success': False,
+                'message': response.error_message,
+                'operation_id': response.operation_id,
+                'status': 'QUEUED',
+                'service': 'subtract'
+            }), 202  # Respuesta 202 Accepted
+    
+    except grpc.RpcError as e:
+        # Manejar caso de servicio no disponible
+        if e.code() == grpc.StatusCode.UNAVAILABLE:
+            # Guardar la operación directamente en un archivo si el servicio no está disponible
+            operation_dir = OPERATIONS_DIR
+            if not os.path.exists(operation_dir):
+                os.makedirs(operation_dir)
+            
+            file_path = os.path.join(operation_dir, f"{operation_id}.json")
+            operation_data = {
+                "status": 1,  # PENDING
+                "message": "Operación en cola (API Gateway)",
+                "timestamp": request.json.get("timestamp", time.time()),
+                "a": a_value,
+                "b": b_value,
+                "service": "subtract"  # Identificar el servicio que debería procesar la operación
+            }
+            
+            try:
+                with open(file_path, 'w') as f:
+                    json.dump(operation_data, f)
+                
+                print(f"Operación {operation_id} guardada en disco por API Gateway")
+            except Exception as file_error:
+                print(f"Error al guardar operación: {str(file_error)}")
+            
+            return jsonify({
+                'success': False,
+                'message': 'Servicio temporalmente no disponible. La operación ha sido encolada.',
+                'operation_id': operation_id,
+                'status': 'QUEUED',
+                'service': 'subtract'
+            }), 202  # Respuesta 202 Accepted
+        
+        # Otros errores gRPC
+        return jsonify({
+            'error': f'Error RPC: {e.details()}',
+            'code': str(e.code())
+        }), 500
+
 @app.route('/operation/status/<operation_id>', methods=['GET'])
 def operation_status(operation_id):
     """
     Endpoint para consultar el estado de una operación
     """
     # Intentar obtener información del servicio desde los parámetros
-    service_name = request.args.get('service', 'sum')  # Por defecto, servicio de suma
+    service_name = request.args.get('service', None)
+    
+    # Si no se especifica servicio, intentar detectarlo desde el archivo
+    if not service_name:
+        operation = get_operation_from_file(operation_id)
+        if operation:
+            service_name = operation.get('service', 'sum')
+        else:
+            service_name = 'sum'  # Por defecto servicio de suma
     
     try:
         # Intentar obtener stub gRPC y consultar servicio
