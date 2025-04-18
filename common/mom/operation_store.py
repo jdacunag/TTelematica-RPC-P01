@@ -97,7 +97,7 @@ class OperationStore:
         try:
             file_path = os.path.join(self.operations_dir, f"{operation_id}.json")
             with open(file_path, 'w') as f:
-                json.dump(operation_data, f)
+                json.dump(operation_data, f, default=lambda o: str(o))
             return True
         except Exception as e:
             logger.error(f"Error al guardar operación {operation_id}: {str(e)}")
@@ -173,11 +173,25 @@ class OperationStore:
         """
         # Si hay un módulo de servicio que proporciona la función de procesamiento, usarla
         if self.service_module and hasattr(self.service_module, "process_async_operation"):
-            result = self.service_module.process_async_operation(operation_id, a, b)
-            # Convertir a diccionario si es necesario
-            if hasattr(result, "__dict__"):
-                result = result.__dict__
-            return result
+            try:
+                result = self.service_module.process_async_operation(operation_id, a, b)
+                # Convertir a diccionario si es necesario
+                if hasattr(result, "__dict__"):
+                    result_dict = result.__dict__
+                elif isinstance(result, dict):
+                    result_dict = result
+                else:
+                    # Si es un objeto de respuesta de gRPC
+                    result_dict = {
+                        "result": getattr(result, "result", 0),
+                        "success": getattr(result, "success", False),
+                        "error_message": getattr(result, "error_message", ""),
+                        "operation_id": operation_id
+                    }
+                return result_dict
+            except Exception as e:
+                logger.error(f"Error al procesar operación con módulo de servicio: {str(e)}")
+                # Continuar con la implementación predeterminada
         
         # Implementación predeterminada
         try:
@@ -248,6 +262,7 @@ class OperationStore:
         # Actualizar estado y mensaje
         operation["status"] = status
         operation["message"] = message
+        operation["timestamp"] = time.time()  # Asegurar timestamp actualizado
         
         # Actualizar resultado si se proporciona
         if result:

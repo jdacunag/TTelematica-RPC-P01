@@ -148,9 +148,9 @@ class MessageQueueHandler:
             # Publicar resultado en RabbitMQ también
             result_message = {
                 'operation_id': operation_id,
-                'result': result.get('result', 0),
-                'success': result.get('success', False),
-                'error_message': result.get('error_message', '')
+                'result': result.get('result', 0) if isinstance(result, dict) else result,
+                'success': result.get('success', False) if isinstance(result, dict) else False,
+                'error_message': result.get('error_message', '') if isinstance(result, dict) else ''
             }
             
             # Publicar resultado en el exchange de resultados
@@ -273,16 +273,24 @@ class MessageQueueHandler:
                 logger.error("No se pudo obtener un canal para publicar resultados")
                 return False
             
+            # Asegurar que existe el exchange
+            channel.exchange_declare(
+                exchange=RESULTS_EXCHANGE,
+                exchange_type='topic',
+                durable=True
+            )
+            
+            # Publicar el mensaje
             channel.basic_publish(
                 exchange=RESULTS_EXCHANGE,
                 routing_key=f"result.{operation_id}",
                 body=json.dumps(result_message),
-                properties=channel.exchange_declare(
-                    exchange=RESULTS_EXCHANGE,
-                    exchange_type='topic',
-                    durable=True
+                properties=channel.basic_properties(
+                    delivery_mode=2,  # Mensaje persistente
+                    content_type='application/json'
                 )
             )
+            
             logger.info(f"Resultado para operación {operation_id} publicado")
             return True
         except Exception as e:
@@ -382,19 +390,17 @@ class MessageQueueHandler:
                 logger.error("No se pudo obtener un canal para publicar la operación")
                 return operation_id, "Error: No se pudo publicar, pero la operación está registrada"
             
+            # Asegurar que existe la cola
+            channel.queue_declare(queue=OPERATION_QUEUE, durable=True)
+            
             # Publicar mensaje en la cola
             channel.basic_publish(
                 exchange='',
                 routing_key=OPERATION_QUEUE,
                 body=json.dumps(message),
-                properties=channel.basic_publish(
-                    exchange='',
-                    routing_key=OPERATION_QUEUE,
-                    body=json.dumps(message),
-                    properties=channel.basic_properties(
-                        delivery_mode=2,  # Mensaje persistente
-                        content_type='application/json'
-                    )
+                properties=channel.basic_properties(
+                    delivery_mode=2,  # Mensaje persistente
+                    content_type='application/json'
                 )
             )
             

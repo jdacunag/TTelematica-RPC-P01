@@ -181,7 +181,8 @@ def process_async_operation(operation_id, a, b):
     # Registrar operación como pendiente
     op_data = {
         "status": operation_pb2.AsyncOperationResponse.OperationStatus.PENDING,
-        "message": "Operación en cola"
+        "message": "Operación en cola",
+        "timestamp": time.time()  # Añadir timestamp
     }
     async_operations[operation_id] = op_data
     save_operation(operation_id, op_data)
@@ -193,7 +194,8 @@ def process_async_operation(operation_id, a, b):
         # Actualizar estado a procesando
         op_data = {
             "status": operation_pb2.AsyncOperationResponse.OperationStatus.PROCESSING,
-            "message": "Procesando operación"
+            "message": "Procesando operación",
+            "timestamp": time.time()  # Actualizar timestamp
         }
         async_operations[operation_id] = op_data
         save_operation(operation_id, op_data)
@@ -220,7 +222,8 @@ def process_async_operation(operation_id, a, b):
         op_data = {
             "status": operation_pb2.AsyncOperationResponse.OperationStatus.COMPLETED,
             "message": "Operación completada",
-            "result": result_dict
+            "result": result_dict,
+            "timestamp": time.time()  # Asegurarse de tener un timestamp actualizado
         }
         async_operations[operation_id] = op_data
         save_operation(operation_id, op_data)
@@ -229,14 +232,6 @@ def process_async_operation(operation_id, a, b):
     
     except Exception as e:
         # En caso de error, actualizar estado a fallido
-        response = operation_pb2.OperationResponse(
-            result=0,
-            success=False,
-            error_message=str(e),
-            operation_id=operation_id
-        )
-        
-        # Convertir a diccionario para almacenamiento
         result_dict = {
             "result": 0,
             "success": False,
@@ -247,9 +242,10 @@ def process_async_operation(operation_id, a, b):
         op_data = {
             "status": operation_pb2.AsyncOperationResponse.OperationStatus.FAILED,
             "message": f"Error al procesar: {str(e)}",
-            "result": result_dict
+            "result": result_dict,
+            "timestamp": time.time()  # Añadir timestamp en error también
         }
         async_operations[operation_id] = op_data
         save_operation(operation_id, op_data)
         
-        return response
+        return result_dict  # Devolver el diccionario en lugar de response

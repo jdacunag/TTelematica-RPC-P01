@@ -42,6 +42,7 @@ class MathServiceWithFailover(MathService):
         super().__init__()
         # Inicializar el manejador MOM con el módulo service
         import service
+        self.service_module = service  # Guardar referencia al módulo service
         self.mom_handler = MOMHandler(service_module=service)
     
     def Sum(self, request, context):
@@ -169,4 +170,3 @@ def serve():
 
 if __name__ == '__main__':
     serve()
-    
