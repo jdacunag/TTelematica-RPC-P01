@@ -2,10 +2,10 @@ syntax = "proto3";
 
 package operations;
 
-// Servicio principal para operaciones matemáticas
-service MathService {
+// Servicio específico para operaciones de suma
+service SumService {
   // Operación síncrona de suma
-  rpc Sum(OperationRequest) returns (OperationResponse) {}
+  rpc Sum(SumRequest) returns (SumResponse) {}
   
   // Verificación de estado del servicio
   rpc CheckStatus(StatusRequest) returns (StatusResponse) {}
@@ -14,15 +14,15 @@ service MathService {
   rpc GetAsyncOperationStatus(AsyncOperationRequest) returns (AsyncOperationResponse) {}
 }
 
-// Solicitud para operaciones matemáticas
-message OperationRequest {
+// Solicitud para operaciones de suma
+message SumRequest {
   int32 a = 1;
   int32 b = 2;
   string operation_id = 3;  // ID único para rastrear la operación
 }
 
-// Respuesta para operaciones matemáticas
-message OperationResponse {
+// Respuesta para operaciones de suma
+message SumResponse {
   int32 result = 1;
   bool success = 2;
   string error_message = 3;
@@ -63,6 +63,6 @@ message AsyncOperationResponse {
     CANCELLED = 5;
   }
   OperationStatus status = 1;
-  OperationResponse result = 2;  // Resultado si está completado
+  SumResponse result = 2;  // Resultado si está completado
   string message = 3;  // Mensaje informativo o de error
 }
