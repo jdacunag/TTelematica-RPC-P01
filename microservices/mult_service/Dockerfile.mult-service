@@ -1,0 +1,28 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Copiar requirements.txt primero para aprovechar la caché de Docker
+COPY requirements.txt .
+
+# Instalar dependencias
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copiar código común y protobufs
+COPY common/ ./common/
+COPY microservices/protobufs/ ./microservices/protobufs/
+
+# Copiar el código específico del servicio
+COPY microservices/mult_service/ ./microservices/mult_service/
+
+# Copiar .env.example como .env si no existe un .env personalizado
+COPY .env.example ./.env
+
+# Establecer PYTHONPATH para permitir importaciones relativas
+ENV PYTHONPATH=/app
+
+# Exponer el puerto en el que corre el servicio
+EXPOSE 50053
+
+# Comando para ejecutar el servicio
+CMD ["python", "microservices/mult_service/server.py"]
