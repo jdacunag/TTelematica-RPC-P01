@@ -1,59 +1,31 @@
 import time
 import uuid
-import json
 import os
 import operation_pb2
 import operation_pb2_grpc
+import sys
 
-# Ruta para almacenar operaciones de forma persistente
-OPERATIONS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "protobufs", "operations")
+# Añadir directorio raíz al path
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../'))
+sys.path.append(project_root)
 
-# Crear directorio si no existe
-if not os.path.exists(OPERATIONS_DIR):
-    os.makedirs(OPERATIONS_DIR)
+# Cargar variables de entorno
+from dotenv import load_dotenv
+load_dotenv()
 
-# Diccionario para almacenar operaciones asíncronas en memoria
+from common.db.operations_db import OperationsDB
+
+# Inicializar la conexión a MongoDB Atlas
+db = OperationsDB.get_instance()
+
+# Diccionario para cache en memoria de operaciones
 async_operations = {}
-
-# Cargar operaciones existentes desde almacenamiento
-def load_operations():
-    """Carga operaciones desde archivos al diccionario en memoria"""
-    if not os.path.exists(OPERATIONS_DIR):
-        return
-    
-    for filename in os.listdir(OPERATIONS_DIR):
-        if filename.endswith('.json'):
-            try:
-                operation_id = filename[:-5]  # Quitar extensión .json
-                file_path = os.path.join(OPERATIONS_DIR, filename)
-                
-                with open(file_path, 'r') as f:
-                    operation_data = json.load(f)
-                    # Solo cargar operaciones de multiplicación (service="mult")
-                    if operation_data.get('service') == 'mult':
-                        async_operations[operation_id] = operation_data
-                        print(f"Cargada operación de multiplicación: {operation_id}")
-            except Exception as e:
-                print(f"Error al cargar operación {filename}: {str(e)}")
-
-# Guardar operación en almacenamiento persistente
-def save_operation(operation_id, operation_data):
-    """Guarda una operación en un archivo JSON"""
-    try:
-        file_path = os.path.join(OPERATIONS_DIR, f"{operation_id}.json")
-        with open(file_path, 'w') as f:
-            json.dump(operation_data, f)
-    except Exception as e:
-        print(f"Error al guardar operación {operation_id}: {str(e)}")
-
-# Cargar operaciones al inicio
-load_operations()
 
 class MultService(operation_pb2_grpc.MultServiceServicer):
     def __init__(self):
         # Tiempo de inicio del servicio para calcular el uptime
         self.start_time = time.time()
-        self.service_id = "mult_service_01"
+        self.service_id = "mult_service_01"  # ID actualizado
     
     def Mult(self, request, context):
         """
@@ -70,21 +42,76 @@ class MultService(operation_pb2_grpc.MultServiceServicer):
             # Realizar la operación de multiplicación
             result = request.a * request.b
             
-            # Crear y retornar la respuesta
-            return operation_pb2.MultResponse(
+            # Crear la respuesta
+            response = operation_pb2.MultResponse(
                 result=result,
                 success=True,
                 error_message="",
                 operation_id=operation_id
             )
+            
+            # Guardar la operación en MongoDB Atlas
+            result_dict = {
+                "result": result,
+                "success": True,
+                "error_message": "",
+                "operation_id": operation_id
+            }
+            
+            operation_data = {
+                "status": operation_pb2.AsyncOperationResponse.OperationStatus.COMPLETED,
+                "message": "Operación de multiplicación completada",
+                "result": result_dict,
+                "timestamp": time.time(),
+                "service": "mult",
+                "a": request.a,
+                "b": request.b,
+                "operation_id": operation_id
+            }
+            
+            # Guardar en caché y en MongoDB
+            async_operations[operation_id] = operation_data
+            success_mongo = db.save_operation(operation_id, operation_data)
+            print(f"Guardado en MongoDB Atlas: {'Éxito' if success_mongo else 'Fallo'} - {operation_id}")
+            
+            return response
         except Exception as e:
-            # En caso de error, retornar respuesta con error
-            return operation_pb2.MultResponse(
+            # En caso de error
+            error_msg = str(e)
+            print(f"Error al procesar multiplicación: {error_msg}")
+            
+            # Crear respuesta de error
+            response = operation_pb2.MultResponse(
                 result=0,
                 success=False,
-                error_message=str(e),
+                error_message=error_msg,
                 operation_id=operation_id
             )
+            
+            # Guardar el error en MongoDB Atlas
+            result_dict = {
+                "result": 0,
+                "success": False,
+                "error_message": error_msg,
+                "operation_id": operation_id
+            }
+            
+            operation_data = {
+                "status": operation_pb2.AsyncOperationResponse.OperationStatus.FAILED,
+                "message": f"Error al procesar multiplicación: {error_msg}",
+                "result": result_dict,
+                "timestamp": time.time(),
+                "service": "mult",
+                "a": request.a,
+                "b": request.b,
+                "operation_id": operation_id
+            }
+            
+            # Guardar en caché y en MongoDB
+            async_operations[operation_id] = operation_data
+            db.save_operation(operation_id, operation_data)
+            
+            return response
     
     def CheckStatus(self, request, context):
         """
@@ -116,10 +143,19 @@ class MultService(operation_pb2_grpc.MultServiceServicer):
         operation_id = request.operation_id
         print(f"Consultando estado de operación asíncrona: {operation_id}")
         
-        # Verificar si la operación existe en memoria
+        # Buscar operación en caché (memoria)
         if operation_id in async_operations:
             operation = async_operations[operation_id]
+        else:
+            # Si no está en caché, buscar en MongoDB Atlas
+            operation = db.get_operation(operation_id)
             
+            # Si se encontró, actualizar caché
+            if operation:
+                async_operations[operation_id] = operation
+        
+        # Si se encontró la operación
+        if operation:
             # Crear respuesta
             response = operation_pb2.AsyncOperationResponse(
                 status=operation["status"],
@@ -128,55 +164,16 @@ class MultService(operation_pb2_grpc.MultServiceServicer):
             
             # Agregar resultado si está disponible
             if "result" in operation:
-                # Crear un nuevo objeto OperationResult para asegurar compatibilidad
-                result_obj = operation_pb2.OperationResult(
-                    result=operation["result"]["result"],
-                    success=operation["result"]["success"],
-                    error_message=operation["result"]["error_message"],
-                    operation_id=operation["result"]["operation_id"]
-                )
-                # Asignar este objeto al campo result de la respuesta
-                response.result.CopyFrom(result_obj)
+                result = operation_pb2.OperationResult()
+                result.result = operation["result"]["result"]
+                result.success = operation["result"]["success"]
+                result.error_message = operation["result"]["error_message"]
+                result.operation_id = operation["result"]["operation_id"]
+                response.result.CopyFrom(result)
             
             return response
         else:
-            # Si no está en memoria, buscar en almacenamiento persistente
-            file_path = os.path.join(OPERATIONS_DIR, f"{operation_id}.json")
-            if os.path.exists(file_path):
-                try:
-                    with open(file_path, 'r') as f:
-                        operation = json.load(f)
-                        
-                    # Verificar que sea una operación de multiplicación
-                    if operation.get('service') != 'mult':
-                        return operation_pb2.AsyncOperationResponse(
-                            status=operation_pb2.AsyncOperationResponse.OperationStatus.UNKNOWN,
-                            message=f"Operación no pertenece al servicio de multiplicación: {operation_id}"
-                        )
-                    
-                    # Cargar en memoria
-                    async_operations[operation_id] = operation
-                    
-                    # Crear respuesta
-                    response = operation_pb2.AsyncOperationResponse(
-                        status=operation["status"],
-                        message=operation["message"]
-                    )
-                    
-                    # Agregar resultado si está disponible
-                    if "result" in operation:
-                        result = operation_pb2.OperationResult()
-                        result.result = operation["result"]["result"]
-                        result.success = operation["result"]["success"] 
-                        result.error_message = operation["result"]["error_message"]
-                        result.operation_id = operation["result"]["operation_id"]
-                        response.result.CopyFrom(result)
-                    
-                    return response
-                except Exception as e:
-                    print(f"Error al cargar operación desde archivo: {str(e)}")
-            
-            # Si no existe, retornar estado desconocido
+            # Si no se encontró la operación
             return operation_pb2.AsyncOperationResponse(
                 status=operation_pb2.AsyncOperationResponse.OperationStatus.UNKNOWN,
                 message=f"Operación no encontrada: {operation_id}"
@@ -185,44 +182,46 @@ class MultService(operation_pb2_grpc.MultServiceServicer):
 # Función para procesar operaciones asíncronas (se usará con el MOM)
 def process_async_operation(operation_id, a, b):
     """
-    Procesa una operación asíncrona de multiplicación y actualiza su estado
+    Procesa una operación asíncrona y actualiza su estado en MongoDB Atlas
     """
     # Registrar operación como pendiente
     op_data = {
         "status": operation_pb2.AsyncOperationResponse.OperationStatus.PENDING,
-        "message": "Operación de multiplicación en cola",
+        "message": "Operación en cola",
         "timestamp": time.time(),
-        "service": "mult"  # Importante: identificar el servicio
+        "service": "mult",
+        "a": a,
+        "b": b,
+        "operation_id": operation_id
     }
+    
+    # Guardar en caché y en MongoDB
     async_operations[operation_id] = op_data
-    save_operation(operation_id, op_data)
+    db.save_operation(operation_id, op_data)
     
     try:
-        # Simular procesamiento
-        time.sleep(2)
-        
         # Actualizar estado a procesando
         op_data = {
             "status": operation_pb2.AsyncOperationResponse.OperationStatus.PROCESSING,
             "message": "Procesando operación de multiplicación",
             "timestamp": time.time(),
-            "service": "mult"
+            "service": "mult",
+            "a": a,
+            "b": b,
+            "operation_id": operation_id
         }
+        
+        # Guardar en caché y en MongoDB
         async_operations[operation_id] = op_data
-        save_operation(operation_id, op_data)
+        db.save_operation(operation_id, op_data)
+        
+        # Simular procesamiento
+        time.sleep(2)
         
         # Realizar la operación
         result = a * b
         
-        # Crear resultado y actualizar estado a completado
-        response = operation_pb2.MultResponse(
-            result=result,
-            success=True,
-            error_message="",
-            operation_id=operation_id
-        )
-        
-        # Convertir a diccionario para almacenamiento
+        # Crear resultado
         result_dict = {
             "result": result,
             "success": True,
@@ -230,35 +229,48 @@ def process_async_operation(operation_id, a, b):
             "operation_id": operation_id
         }
         
+        # Actualizar estado a completado
         op_data = {
             "status": operation_pb2.AsyncOperationResponse.OperationStatus.COMPLETED,
             "message": "Operación de multiplicación completada",
             "result": result_dict,
             "timestamp": time.time(),
-            "service": "mult"
+            "service": "mult",
+            "a": a,
+            "b": b,
+            "operation_id": operation_id
         }
-        async_operations[operation_id] = op_data
-        save_operation(operation_id, op_data)
         
-        return response
+        # Guardar en caché y en MongoDB
+        async_operations[operation_id] = op_data
+        db.save_operation(operation_id, op_data)
+        
+        return result_dict
     
     except Exception as e:
-        # En caso de error, actualizar estado a fallido
+        # En caso de error
+        error_msg = str(e)
+        
         result_dict = {
             "result": 0,
             "success": False,
-            "error_message": str(e),
+            "error_message": error_msg,
             "operation_id": operation_id
         }
         
         op_data = {
             "status": operation_pb2.AsyncOperationResponse.OperationStatus.FAILED,
-            "message": f"Error al procesar multiplicación: {str(e)}",
+            "message": f"Error al procesar multiplicación: {error_msg}",
             "result": result_dict,
             "timestamp": time.time(),
-            "service": "mult"
+            "service": "mult",
+            "a": a,
+            "b": b,
+            "operation_id": operation_id
         }
-        async_operations[operation_id] = op_data
-        save_operation(operation_id, op_data)
         
-        return result_dict  # Devolver el diccionario en lugar de response
+        # Guardar en caché y en MongoDB
+        async_operations[operation_id] = op_data
+        db.save_operation(operation_id, op_data)
+        
+        return result_dict
