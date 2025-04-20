@@ -37,21 +37,21 @@ SERVICES = {
         'stub_module': 'operation_pb2_grpc',
         'stub_class': 'SumServiceStub',
         'path': os.path.abspath('../microservices/sum_service'),
-        'server_address': 'localhost:50051',
+        'server_address': os.getenv('SUM_SERVICE_ADDRESS', 'localhost:50051'),
         'service_id': 'sum_service_01'
     },
     'subtract': {
         'stub_module': 'operation_pb2_grpc',
         'stub_class': 'SubtractServiceStub',
         'path': os.path.abspath('../microservices/subtract_service'),
-        'server_address': 'localhost:50052',  # Puerto diferente
+        'server_address': os.getenv('SUBTRACT_SERVICE_ADDRESS', 'localhost:50052'),
         'service_id': 'subtract_service_01'
     },
     'mult': {
         'stub_module': 'operation_pb2_grpc',
         'stub_class': 'MultServiceStub',
         'path': os.path.abspath('../microservices/mult_service'),
-        'server_address': 'localhost:50053',  # Puerto diferente
+        'server_address': os.getenv('MULT_SERVICE_ADDRESS', 'localhost:50053'),
         'service_id': 'mult_service_01'
     }
     # Aquí se pueden añadir más servicios en el futuro

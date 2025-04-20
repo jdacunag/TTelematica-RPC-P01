@@ -48,7 +48,10 @@ services:
     ports:
       - "5000:5000"
     environment:
-      - MONGO_URI=mongodb://admin:admin123@mongodb:27017/microservices_db?retryWrites=true&w=majority
+      - SUM_SERVICE_ADDRESS=sum-service:50051
+      - SUBTRACT_SERVICE_ADDRESS=subtract-service:50052
+      - MULT_SERVICE_ADDRESS=mult-service:50053
+      - MONGO_URI=mongodb+srv://admin:admin123@telematica-rpc.mxzpwyj.mongodb.net/microservices_db?retryWrites=true&w=majority
       - MONGO_DB=microservices_db
       - MONGO_COLLECTION=operations
       - RABBITMQ_HOST=rabbitmq
@@ -78,7 +81,7 @@ services:
       context: .
       dockerfile: microservices/sum_service/Dockerfile.sum-service
     environment:
-      - MONGO_URI=mongodb://admin:admin123@mongodb:27017/microservices_db?retryWrites=true&w=majority
+      - MONGO_URI=mongodb+srv://admin:admin123@telematica-rpc.mxzpwyj.mongodb.net/microservices_db?retryWrites=true&w=majority
       - MONGO_DB=microservices_db
       - MONGO_COLLECTION=operations
       - RABBITMQ_HOST=rabbitmq
@@ -104,7 +107,7 @@ services:
       context: .
       dockerfile: microservices/substract_service/Dockerfile.substract-service
     environment:
-      - MONGO_URI=mongodb://admin:admin123@mongodb:27017/microservices_db?retryWrites=true&w=majority
+      - MONGO_URI=mongodb+srv://admin:admin123@telematica-rpc.mxzpwyj.mongodb.net/microservices_db?retryWrites=true&w=majority
       - MONGO_DB=microservices_db
       - MONGO_COLLECTION=operations
       - RABBITMQ_HOST=rabbitmq
@@ -130,7 +133,7 @@ services:
       context: .
       dockerfile: microservices/mult_service/Dockerfile.mult-service
     environment:
-      - MONGO_URI=mongodb://admin:admin123@mongodb:27017/microservices_db?retryWrites=true&w=majority
+      - MONGO_URI=mongodb+srv://admin:admin123@telematica-rpc.mxzpwyj.mongodb.net/microservices_db?retryWrites=true&w=majority
       - MONGO_DB=microservices_db
       - MONGO_COLLECTION=operations
       - RABBITMQ_HOST=rabbitmq
