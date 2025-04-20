@@ -3,9 +3,10 @@ import json
 import time
 import uuid
 import sys
+import os
 
 # URL base del API Gateway
-API_GATEWAY_URL = "http://localhost:5000"
+API_GATEWAY_URL = os.getenv('API_GATEWAY_URL', 'http://localhost:5000')
 
 def check_service_status(service="sum"):
     """

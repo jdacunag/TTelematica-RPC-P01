@@ -1,0 +1,18 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Copiar requirements.txt primero para aprovechar la caché de Docker
+COPY requirements.txt .
+
+# Instalar dependencias
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copiar código del cliente
+COPY client/ ./client/
+
+# Establecer PYTHONPATH para permitir importaciones relativas
+ENV PYTHONPATH=/app
+
+# Comando predeterminado para ejecutar el cliente en modo interactivo
+ENTRYPOINT ["python", "client/client.py"]

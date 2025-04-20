@@ -10,14 +10,20 @@ import operation_pb2
 import operation_pb2_grpc
 from service import MultService, process_async_operation, async_operations
 
-import sys
-import os
-
 # Añadir directorio raíz al path para importar el paquete common
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../'))
 sys.path.append(project_root)
 
+# Cargar variables de entorno
+from dotenv import load_dotenv
+load_dotenv()
+
 from common.mom import MOMHandler, handle_failover
+from common.db.operations_db import OperationsDB
+
+# Inicializar la conexión a MongoDB Atlas
+db = OperationsDB.get_instance()
+
 # Puerto por defecto para el servidor
 DEFAULT_PORT = 50053  # Puerto diferente al de suma (50051) y resta (50052)
 
@@ -27,18 +33,52 @@ server_active = True
 # Función para procesar manualmente los archivos pendientes
 def process_files_immediately():
     """
-    Procesa directamente todas las operaciones pendientes en archivos
+    Procesa directamente todas las operaciones pendientes en archivos y en MongoDB
     """
-    print("Solicitando procesamiento de archivos pendientes...")
+    print("Solicitando procesamiento de operaciones pendientes...")
+    
     # Usar el manejador MOM para procesar archivos
     import service
     mom_handler = MOMHandler(service_module=service)
-    count = mom_handler.recovery.process_files_immediately()
-    print(f"Procesamiento completado. Se procesaron {count} operaciones pendientes.")
+    count_files = mom_handler.recovery.process_files_immediately()
+    
+    # También procesar operaciones pendientes en MongoDB
+    try:
+        # Obtener operaciones pendientes (status = PENDING) para este servicio
+        pending_ops = db.get_pending_operations("mult")
+        count_db = 0
+        
+        for op in pending_ops:
+            try:
+                # Extraer los datos necesarios
+                operation_id = op["operation_id"]
+                a = op["a"]
+                b = op["b"]
+                
+                print(f"Procesando operación pendiente de MongoDB: {operation_id} (multiplicación de {a} * {b})")
+                
+                # Procesar la operación
+                result = process_async_operation(operation_id, a, b)
+                count_db += 1
+                
+                # Añadir pequeña pausa para no sobrecargar el sistema
+                time.sleep(0.1)
+            except Exception as e:
+                print(f"Error al procesar operación pendiente de MongoDB {op.get('operation_id', 'unknown')}: {str(e)}")
+        
+        total_count = count_files + count_db
+        print(f"Procesamiento completado. Se procesaron {total_count} operaciones pendientes.")
+        print(f"- Desde archivos: {count_files}")
+        print(f"- Desde MongoDB: {count_db}")
+        
+        return total_count
+    except Exception as e:
+        print(f"Error al procesar operaciones pendientes de MongoDB: {str(e)}")
+        return count_files
 
 class MultServiceWithFailover(MultService):
     """
-    Implementación de MultService con mecanismo de failover
+    Implementación de MultService con mecanismo de failover que usa MongoDB
     """
     def __init__(self):
         super().__init__()
@@ -57,6 +97,22 @@ class MultServiceWithFailover(MultService):
             
             # Enviar operación a la cola MOM usando el handle_failover centralizado
             operation_id, message = handle_failover(request, service_module=self.service_module)
+            
+            # Guardar también en MongoDB como pendiente
+            try:
+                operation_data = {
+                    "status": operation_pb2.AsyncOperationResponse.OperationStatus.PENDING.value,
+                    "message": "Operación en cola (Servidor degradado)",
+                    "timestamp": time.time(),
+                    "service": "mult",
+                    "a": request.a,
+                    "b": request.b,
+                    "operation_id": operation_id
+                }
+                db.save_operation(operation_id, operation_data)
+                print(f"Operación encolada guardada en MongoDB: {operation_id}")
+            except Exception as db_error:
+                print(f"Error al guardar operación en MongoDB: {str(db_error)}")
             
             # Crear respuesta indicando que la operación fue encolada
             context.set_code(grpc.StatusCode.UNAVAILABLE)
@@ -100,6 +156,40 @@ class MultServiceWithFailover(MultService):
                 message=f"ID de servicio desconocido: {request.service_id}",
                 uptime=uptime
             )
+    
+    def GetAsyncOperationStatus(self, request, context):
+        """
+        Método GetAsyncOperationStatus que busca primero en MongoDB
+        """
+        operation_id = request.operation_id
+        print(f"Consultando estado de operación asíncrona: {operation_id}")
+        
+        # Buscar primero en la base de datos
+        operation = db.get_operation(operation_id)
+        
+        if operation:
+            # Si se encontró en MongoDB, actualizar caché en memoria
+            async_operations[operation_id] = operation
+            
+            # Crear respuesta
+            response = operation_pb2.AsyncOperationResponse(
+                status=operation["status"],
+                message=operation["message"]
+            )
+            
+            # Agregar resultado si está disponible
+            if "result" in operation:
+                result = operation_pb2.OperationResult()
+                result.result = operation["result"]["result"]
+                result.success = operation["result"]["success"]
+                result.error_message = operation["result"]["error_message"]
+                result.operation_id = operation["result"]["operation_id"]
+                response.result.CopyFrom(result)
+            
+            return response
+        
+        # Si no está en MongoDB, usar la implementación original
+        return super().GetAsyncOperationStatus(request, context)
 
 def toggle_server_status():
     """

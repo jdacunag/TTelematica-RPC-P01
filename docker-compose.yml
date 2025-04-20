@@ -1,0 +1,177 @@
+version: '3.8'
+
+services:
+  # MongoDB (base de datos)
+  mongodb:
+    image: mongo:latest
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=admin
+      - MONGO_INITDB_ROOT_PASSWORD=admin123
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/admin --quiet
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
+    networks:
+      - math_network
+
+  # RabbitMQ (Message Broker)
+  rabbitmq:
+    image: rabbitmq:3-management
+    ports:
+      - "5672:5672"  # AMQP protocol
+      - "15672:15672"  # Management UI
+    environment:
+      - RABBITMQ_DEFAULT_USER=guest
+      - RABBITMQ_DEFAULT_PASS=guest
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: rabbitmq-diagnostics -q ping
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
+    networks:
+      - math_network
+      
+  # API Gateway
+  api-gateway:
+    build:
+      context: .
+      dockerfile: api_gateway/Dockerfile.api-gateway
+    ports:
+      - "5000:5000"
+    environment:
+      - SUM_SERVICE_ADDRESS=sum-service:50051
+      - SUBTRACT_SERVICE_ADDRESS=subtract-service:50052
+      - MULT_SERVICE_ADDRESS=mult-service:50053
+      - MONGO_URI=mongodb+srv://admin:admin123@telematica-rpc.mxzpwyj.mongodb.net/microservices_db?retryWrites=true&w=majority
+      - MONGO_DB=microservices_db
+      - MONGO_COLLECTION=operations
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_PORT=5672
+      - RABBITMQ_USER=guest
+      - RABBITMQ_PASS=guest
+      - RABBITMQ_VHOST=/
+      - DEBUG=true
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      sum-service:
+        condition: service_started
+      subtract-service:
+        condition: service_started
+      mult-service:
+        condition: service_started
+    networks:
+      - math_network
+    restart: unless-stopped
+
+  # Microservicio de Suma
+  sum-service:
+    build:
+      context: .
+      dockerfile: microservices/sum_service/Dockerfile.sum-service
+    environment:
+      - MONGO_URI=mongodb+srv://admin:admin123@telematica-rpc.mxzpwyj.mongodb.net/microservices_db?retryWrites=true&w=majority
+      - MONGO_DB=microservices_db
+      - MONGO_COLLECTION=operations
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_PORT=5672
+      - RABBITMQ_USER=guest
+      - RABBITMQ_PASS=guest
+      - RABBITMQ_VHOST=/
+      - DEBUG=true
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    expose:
+      - "50051"
+    networks:
+      - math_network
+    restart: unless-stopped
+
+  # Microservicio de Resta
+  subtract-service:
+    build:
+      context: .
+      dockerfile: microservices/substract_service/Dockerfile.substract-service
+    environment:
+      - MONGO_URI=mongodb+srv://admin:admin123@telematica-rpc.mxzpwyj.mongodb.net/microservices_db?retryWrites=true&w=majority
+      - MONGO_DB=microservices_db
+      - MONGO_COLLECTION=operations
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_PORT=5672
+      - RABBITMQ_USER=guest
+      - RABBITMQ_PASS=guest
+      - RABBITMQ_VHOST=/
+      - DEBUG=true
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    expose:
+      - "50052"
+    networks:
+      - math_network
+    restart: unless-stopped
+
+  # Microservicio de Multiplicación
+  mult-service:
+    build:
+      context: .
+      dockerfile: microservices/mult_service/Dockerfile.mult-service
+    environment:
+      - MONGO_URI=mongodb+srv://admin:admin123@telematica-rpc.mxzpwyj.mongodb.net/microservices_db?retryWrites=true&w=majority
+      - MONGO_DB=microservices_db
+      - MONGO_COLLECTION=operations
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_PORT=5672
+      - RABBITMQ_USER=guest
+      - RABBITMQ_PASS=guest
+      - RABBITMQ_VHOST=/
+      - DEBUG=true
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    expose:
+      - "50053"
+    networks:
+      - math_network
+    restart: unless-stopped
+
+  # Cliente
+  client:
+    build:
+      context: .
+      dockerfile: client/Dockerfile.client
+    environment:
+      - API_GATEWAY_URL=http://api-gateway:5000
+    depends_on:
+      - api-gateway
+    networks:
+      - math_network
+    # El cliente se ejecuta en modo interactivo
+    stdin_open: true
+    tty: true
+
+networks:
+  math_network:
+    driver: bridge
+
+volumes:
+  mongodb_data:
+  rabbitmq_data:
