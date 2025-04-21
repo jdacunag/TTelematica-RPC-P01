@@ -2,6 +2,20 @@
 
 Este proyecto implementa un sistema distribuido con microservicios que se comunican mediante gRPC y utilizan un mecanismo de failover basado en Message-Oriented Middleware (RabbitMQ).
 
+# Info de la materia: Tópicos Especiales en Telemática
+
+# Estudiante(s): nombre, email-eafit
+| Nombre | email-EAFIT |
+|--------|-------------|
+| David Lopera Londoño | dloperal2@eafit.edu.co |
+| Camilo Monsalve Montes | cmonsalvem@eafit.edu.co |
+| Juan Diego Acuña Giraldo | jdacunag@eafit.edu.co |
+#
+# Profesor: nombre, email-eafit
+| Profesor | email-EAFIT |
+|----------|-------------|
+| Edwin Nelson Montoya Múnera | emontoya@eafit.edu.co |
+
 ## Arquitectura del Sistema
 
 La arquitectura del sistema consta de los siguientes componentes:
@@ -17,23 +31,36 @@ La arquitectura del sistema consta de los siguientes componentes:
 TTelematica-RPC-P01/
 ├── api_gateway/
 │   ├── app.py                     # Implementación del API Gateway
-│   └── requirements.txt           # Dependencias del API Gateway
+|   ├── Dockerfile.api-gateway     # Dockerfile para API Gateway
 ├── client/
 │   ├── client.py                  # Cliente REST
-│   └── requirements.txt           # Dependencias del cliente
+|   ├── Dockerfile.client          # Dockerfile para el Cliente REST
+├── common/
+│   └── db/
+│       ├── config.py              # Archivo de configuración de variables de entorno, URLs, etc
+│       ├── operations_db.py       # Archivo que maneja la conexión a MongoDB Atlas
+│   └── mom/
 ├── microservices/
 │   └── protobufs/
-│       └── math_service/
 │           ├── operation.proto    # Definición de servicios y mensajes
 │           ├── operation_pb2.py   # Código generado por protoc
 │           ├── operation_pb2_grpc.py  # Código generado por protoc
-│           ├── server.py          # Servidor gRPC
-│           ├── updated_server.py  # Servidor gRPC con failover
-│           ├── service.py         # Implementación del servicio
-│           ├── mom_handler.py     # Manejador de MOM
-│           ├── test_client.py     # Cliente gRPC de prueba
-│           ├── failover_client.py # Cliente gRPC con manejo de failover
-│           └── requirements.txt   # Dependencias del microservicio
+│   └── sum_service/
+│           ├── server.py                # Servidor ejecutabke del microservicio de sumar
+│           ├── service.py               # Servicio del microservicio de sumar
+│           ├── Dockerfile.sum-service   # Dockerfile para el microservicio de sumar
+│   └── substract_service/
+│           ├── server.py                      # Servidor ejecutabke del microservicio de restar
+│           ├── service.py                     # Servicio del microservicio de restar
+│           ├── Dockerfile.substract-service   # Dockerfile para el microservicio de restar
+│   └── mult_service/
+│           ├── server.py                 # Servidor ejecutabke del microservicio de multiplicar
+│           ├── service.py                # Servicio del microservicio de multiplicar
+│           ├── Dockerfile.mult-service   # Dockerfile para el microservicio de multiplicar
+├── service_monitor.py                       # Script para verificar el estado de MongoDB Atlas y RabbitMQ
+├── test_mongodb_connection.py               # Archivo para testear la conexión a MongoDB Atlas y RabbitMQ
+├── requirements.txt                         # Dependencias del proyecto
+├── docker-compose.yml                       # Archivo docker-compose para crear contenedores, imagenes de cada parte del proyecto
 ├── README.md                      # Documentación del proyecto
 └── SETUP.md                       # Guía de instalación
 ```
@@ -56,11 +83,22 @@ Ver [SETUP.md](SETUP.md) para instrucciones detalladas de instalación.
    docker run -d --hostname my-rabbit --name rabbitmq -p 15672:15672 -p 5672:5672 -e RABBITMQ_DEFAULT_USER=user -e RABBITMQ_DEFAULT_PASS=password rabbitmq:3-management
    ```
 
-2. **Iniciar el Microservicio**:
+2. **Iniciar los Microservicios**:
    ```bash
-   cd microservices/protobufs/math_service
-   python updated_server.py
+   cd microservices/sum_service
+   python server.py
    ```
+
+   ```bash
+   cd microservices/substract_service
+   python server.py
+   ```
+
+   ```bash
+   cd microservices/mult_service
+   python server.py
+   ```
+   
 
 3. **Iniciar el API Gateway**:
    ```bash
