@@ -74,6 +74,31 @@ TTelematica-RPC-P01/
 - Dependencias de cada componente (ver archivos requirements.txt)
 - Docker y Docker-Compose
 
+# Descripción general del ambiente de desarrollo técnico
+
+## Detalles del desarrollo y técnicos
+
+- **Python**: Lenguaje principal de programación (3.8 o superior)
+- **Flask**: Framework para el API Gateway
+- **gRPC**: Framework para comunicación entre microservicios
+- **Protocol Buffers**: Mecanismo para serializar datos estructurados
+- **RabbitMQ**: Sistema de mensajería para el mecanismo de failover
+- **Pika**: Es una librería cliente de RabbitMQ para Python.
+- **Requests**: Biblioteca para el cliente REST
+- **MongoDB Atlas**: Base de datos noSQL para almacenar las operaciones en colecciones
+
+ ```bash
+   flask==2.3.3
+   grpcio==1.60.1
+   grpcio-tools==1.60.1
+   requests==2.31.0
+   pika==1.3.2
+   pymongo==4.6.2
+   dnspython==2.6.1
+   python-dotenv==1.0.1
+   ```
+
+
 ## Ejecución del Sistema
 
 1. **Iniciar RabbitMQ**:
@@ -153,9 +178,11 @@ TTelematica-RPC-P01/
 
 ## Tecnologías Utilizadas
 
-- **Python**: Lenguaje principal de programación
+- **Python**: Lenguaje principal de programación (3.8 o superior)
 - **Flask**: Framework para el API Gateway
 - **gRPC**: Framework para comunicación entre microservicios
 - **Protocol Buffers**: Mecanismo para serializar datos estructurados
 - **RabbitMQ**: Sistema de mensajería para el mecanismo de failover
+- **Pika**: Es una librería cliente de RabbitMQ para Python.
 - **Requests**: Biblioteca para el cliente REST
+- **MongoDB Atlas**: Base de datos noSQL para almacenar las operaciones en colecciones
