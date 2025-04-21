@@ -67,23 +67,42 @@ TTelematica-RPC-P01/
 
 ## Instalación y Configuración
 
-Ver [SETUP.md](SETUP.md) para instrucciones detalladas de instalación.
-
 ### Requisitos Previos
 
 - Python 3.8 o superior
 - RabbitMQ
 - Dependencias de cada componente (ver archivos requirements.txt)
+- Docker y Docker-Compose
 
 ## Ejecución del Sistema
 
 1. **Iniciar RabbitMQ**:
    ```bash
-   # Usando Docker
-   docker run -d --hostname my-rabbit --name rabbitmq -p 15672:15672 -p 5672:5672 -e RABBITMQ_DEFAULT_USER=user -e RABBITMQ_DEFAULT_PASS=password rabbitmq:3-management
+   # Usando Docker /en la raiz del proyecto)
+   sudo docker run -d --hostname my-rabbit --name rabbitmq -p 15672:15672 -p 5672:5672 rabbitmq:management
+   ```
+2. **Crear el entorno virtual**:
+   ```bash
+   # Ejecutar en la raiz del proyecto
+   python3 -m venv
+   # Se creará una carpeta con los entornos virtuales "venv" en la raiz del proyecto 
    ```
 
-2. **Iniciar los Microservicios**:
+   ```bash
+   # Activar el entorno virtual
+   source venv/bin/activate
+   ```
+
+3. **Instalar los requerimientos:**
+   
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+4. **Iniciar los Microservicios**:
+
+   En diferentes terminales ejecutar
+   
    ```bash
    cd microservices/sum_service
    python server.py
