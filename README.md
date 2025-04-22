@@ -4,14 +4,14 @@ Este proyecto implementa un sistema distribuido con microservicios que se comuni
 
 # Info de la materia: Tópicos Especiales en Telemática
 
-# Estudiante(s): nombre, email-eafit
+# Estudiante(s):
 | Nombre | email-EAFIT |
 |--------|-------------|
 | David Lopera Londoño | dloperal2@eafit.edu.co |
 | Camilo Monsalve Montes | cmonsalvem@eafit.edu.co |
 | Juan Diego Acuña Giraldo | jdacunag@eafit.edu.co |
 #
-# Profesor: nombre, email-eafit
+# Profesor:
 | Profesor | email-EAFIT |
 |----------|-------------|
 | Edwin Nelson Montoya Múnera | emontoya@eafit.edu.co |
