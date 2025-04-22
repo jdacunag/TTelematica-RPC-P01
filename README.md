@@ -1,15 +1,15 @@
 # Sistema Distribuido con Microservicios y Failover
 
-# Tópicos Especiales en Telemática
+## Tópicos Especiales en Telemática
 
-# Estudiante(s):
+## Estudiante(s):
 | Nombre | Correo |
 |--------|-------------|
 | David Lopera Londoño | dloperal2@eafit.edu.co |
 | Camilo Monsalve Montes | cmonsalvem@eafit.edu.co |
 | Juan Diego Acuña Giraldo | jdacunag@eafit.edu.co |
-#
-# Profesor:
+
+## Profesor:
 | Profesor | Correo |
 |----------|-------------|
 | Edwin Nelson Montoya Múnera | emontoya@eafit.edu.co |
