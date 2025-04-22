@@ -126,8 +126,8 @@ La configuración se realiza mediante un archivo `.env` con las siguientes varia
 #### MongoDB Atlas
 ```
 MONGO_URI=mongodb+srv://user:password@cluster.mongodb.net/microservices_db?retryWrites=true&w=majority
-MONGO_DB=microservices_db
-MONGO_COLLECTION=operations
+MONGO_DB=NOMBRE DE LA BASE DE DATOS
+MONGO_COLLECTION=NOMBRE DE LA COLECCIÓN
 ```
 
 #### RabbitMQ
