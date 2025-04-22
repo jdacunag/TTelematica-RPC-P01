@@ -280,7 +280,7 @@ Una vez creadas las instancias, se deben crear los archivos de configuración pa
          - SUM_SERVICE_ADDRESS=IP_MICROSERVICES_INSTANCE:50051
          - SUBTRACT_SERVICE_ADDRESS=IP_MICROSERVICES_INSTANCE:50052
          - MULT_SERVICE_ADDRESS=IP_MICROSERVICES_INSTANCE:50053
-         - MONGO_URI=mongodb+srv://usuario:password@cluster.mongodb.net/microservices_db?retryWrites=true&w=majority
+         - MONGO_URI=mongodb+srv://user:password@cluster.mongodb.net/microservices_db?retryWrites=true&w=majority
          - MONGO_DB=microservices_db
          - MONGO_COLLECTION=operations
          - RABBITMQ_HOST=rabbitmq
@@ -329,7 +329,7 @@ Una vez creadas las instancias, se deben crear los archivos de configuración pa
          context: .
          dockerfile: microservices/sum_service/Dockerfile.sum-service
        environment:
-         - MONGO_URI=mongodb+srv://usuario:password@cluster.mongodb.net/microservices_db?retryWrites=true&w=majority
+         - MONGO_URI=mongodb+srv://user:password@cluster.mongodb.net/microservices_db?retryWrites=true&w=majority
          - MONGO_DB=microservices_db
          - MONGO_COLLECTION=operations
          - RABBITMQ_HOST=IP_API_GATEWAY_INSTANCE
@@ -355,7 +355,7 @@ Una vez creadas las instancias, se deben crear los archivos de configuración pa
          context: .
          dockerfile: microservices/substract_service/Dockerfile.substract-service
        environment:
-         - MONGO_URI=mongodb+srv://usuario:password@cluster.mongodb.net/microservices_db?retryWrites=true&w=majority
+         - MONGO_URI=mongodb+srv://user:password@cluster.mongodb.net/microservices_db?retryWrites=true&w=majority
          - MONGO_DB=microservices_db
          - MONGO_COLLECTION=operations
          - RABBITMQ_HOST=IP_API_GATEWAY_INSTANCE
@@ -381,7 +381,7 @@ Una vez creadas las instancias, se deben crear los archivos de configuración pa
          context: .
          dockerfile: microservices/mult_service/Dockerfile.mult-service
        environment:
-         - MONGO_URI=mongodb+srv://usuario:password@cluster.mongodb.net/microservices_db?retryWrites=true&w=majority
+         - MONGO_URI=mongodb+srv://user:password@cluster.mongodb.net/microservices_db?retryWrites=true&w=majority
          - MONGO_DB=microservices_db
          - MONGO_COLLECTION=operations
          - RABBITMQ_HOST=IP_API_GATEWAY_INSTANCE
