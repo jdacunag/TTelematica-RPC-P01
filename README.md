@@ -67,6 +67,17 @@ La arquitectura del sistema consta con los siguientes componentes:
 
 ### Compilación y ejecución
 
+Para esto se debe crear el entorno virtual primeramente en la carpeta raiz 
+
+   ```bash
+   python3 -m venv venv
+   ```
+Y luego encender el entorno virtual
+
+```bash
+   source venv/bin/activate
+   ```
+
 #### Usando Docker Compose (recomendado)
 
 1. Clona el repositorio y navega hasta el directorio:
@@ -74,13 +85,16 @@ La arquitectura del sistema consta con los siguientes componentes:
    git clone https://github.com/jdacunag/TTelematica-RPC-P01.git
    cd TTelematica-RPC-P01
    ```
-
-2. Ejecuta los servicios usando Docker Compose:
+2. Crear las imagenes y contenedores usando Docker Compose:
+   ```bash
+   docker-compose build
+   ```
+3. Ejecuta los servicios usando Docker Compose:
    ```bash
    docker-compose up -d
    ```
 
-3. Para detener los servicios:
+4. Para detener los servicios:
    ```bash
    docker-compose down
    ```
