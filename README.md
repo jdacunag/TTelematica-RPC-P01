@@ -55,6 +55,9 @@ La arquitectura del sistema consta con los siguientes componentes:
 - **Dockerización**: Contenedores para facilitar el despliegue y la portabilidad.
 - **Logging**: Registro detallado de operaciones para facilitar la depuración.
 
+### Diagrama de procesos
+
+![Image](https://github.com/user-attachments/assets/f03cc4ac-d9ab-4bd6-9070-7332d977bf3f) 
 ## 3. Descripción del ambiente de desarrollo y técnico
 
 ### Lenguajes, librerías y paquetes
