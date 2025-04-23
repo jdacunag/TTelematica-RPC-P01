@@ -14,6 +14,10 @@
 |----------|-------------|
 | Edwin Nelson Montoya Múnera | emontoya@eafit.edu.co |
 
+## Vídeo de la Sustentación
+
+https://youtu.be/PPttCCMb-wk 
+
 ## 1. Descripción de la actividad
 
 Este proyecto implementa un sistema distribuido basado en microservicios que ofrece operaciones matemáticas (suma, resta y multiplicación) a través de un API Gateway. El sistema utiliza gRPC para la comunicación entre microservicios y un mecanismo de failover mediante Message-Oriented Middleware (RabbitMQ) para garantizar la entrega de mensajes incluso cuando un servicio no está disponible temporalmente. También se implementa el almacenamiento persistente de operaciones mediante MongoDB Atlas.
